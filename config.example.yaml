@@ -1,0 +1,226 @@
+# MAOS Configuration Example
+# Multi-Agent Orchestration System
+#
+# This is an example configuration file demonstrating all available options.
+# Copy this file to config.yaml and modify as needed.
+
+# ============================================================================
+# LLM Providers
+# ============================================================================
+# Define the LLM backends used by agents.
+# Each LLM configuration can be referenced by name in agent definitions.
+
+llms:
+  # Default LLM used when not specified
+  default:
+    provider: openai              # Options: openai, anthropic, google, ollama
+    model: gpt-4o-mini
+    temperature: 0.7
+    # api_key_env: OPENAI_API_KEY  # Optional: custom env var name
+
+  # Fast model for quick responses
+  fast:
+    provider: openai
+    model: gpt-4o-mini
+    temperature: 0.0
+    max_tokens: 500
+
+  # Anthropic Claude for complex reasoning
+  # claude:
+  #   provider: anthropic
+  #   model: claude-3-5-sonnet-20241022
+  #   temperature: 0.7
+  #   api_key_env: ANTHROPIC_API_KEY
+
+  # Local Ollama for development
+  # local:
+  #   provider: ollama
+  #   model: llama3.2
+  #   base_url: http://localhost:11434
+
+# ============================================================================
+# MCP Servers (Tool Providers)
+# ============================================================================
+# Configure Model Context Protocol servers that provide tools.
+# Tools from these servers can be used by worker agents.
+
+# mcp_servers:
+#   # Example: Filesystem tools
+#   filesystem:
+#     transport: stdio
+#     command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+#     timeout_seconds: 30
+#
+#   # Example: Brave Search
+#   brave-search:
+#     transport: stdio
+#     command: ["npx", "-y", "@anthropic/brave-search-mcp"]
+#     timeout_seconds: 30
+#
+#   # Example: HTTP-based MCP server
+#   remote-tools:
+#     transport: http
+#     url: http://localhost:3000/mcp
+#     timeout_seconds: 60
+
+# ============================================================================
+# Tools
+# ============================================================================
+# Define which tools from MCP servers are available.
+# Tools can be grouped into skills and assigned to agents.
+
+# tools:
+#   # Example: File reading tool
+#   read_file:
+#     server: filesystem
+#     tool_name: read_file
+#     timeout_seconds: 10
+#
+#   # Example: Web search tool
+#   web_search:
+#     server: brave-search
+#     tool_name: brave_search
+#     timeout_seconds: 30
+
+# ============================================================================
+# Skills
+# ============================================================================
+# Group related tools into skills that represent capabilities.
+
+# skills:
+#   # Example: Research skill
+#   research:
+#     tools:
+#       - web_search
+#       - read_file
+#     description: "Ability to research topics using web search and file reading"
+#
+#   # Example: Writing skill
+#   writing:
+#     tools: []
+#     description: "Ability to write and edit content"
+
+# ============================================================================
+# Skillsets
+# ============================================================================
+# Combine skills into skillsets that define an agent's capabilities.
+
+# skillsets:
+#   # Example: Researcher skillset
+#   researcher:
+#     skills:
+#       - research
+#     description: "Comprehensive research capabilities"
+#
+#   # Example: Writer skillset
+#   writer:
+#     skills:
+#       - writing
+#       - research
+#     description: "Writing with research support"
+
+# ============================================================================
+# Agents
+# ============================================================================
+# Define the agents in the orchestration system.
+# At minimum, you need a supervisor and at least one worker.
+
+agents:
+  # Supervisor Agent (Required)
+  # The supervisor routes tasks to appropriate workers.
+  supervisor:
+    kind: supervisor
+    llm: default
+    system_prompt: |
+      You are a supervisor agent that routes tasks to specialist workers.
+
+      Analyze each request and decide which worker is best suited to handle it.
+      Consider the workers' specializations and capabilities.
+
+      When the task is complete, route to END.
+      If you need clarification from the user, use the send_message tool.
+
+  # General Assistant Worker
+  assistant:
+    kind: native_worker
+    llm: default
+    system_prompt: |
+      You are a helpful assistant that can handle general queries.
+      Be concise and accurate in your responses.
+      If you need additional tools or capabilities, let the user know.
+    description: "General purpose assistant for common tasks"
+    timeout_seconds: 60
+    # skillset: researcher  # Uncomment to assign skillset
+    # tools:                # Or list tools directly
+    #   - web_search
+
+  # Example: Research Specialist
+  # researcher:
+  #   kind: native_worker
+  #   llm: default
+  #   skillset: researcher
+  #   system_prompt: |
+  #     You are a research specialist. Gather information thoroughly
+  #     and provide well-sourced answers.
+  #   description: "Specialist in research and information gathering"
+  #   timeout_seconds: 120
+
+  # Example: Writer Specialist
+  # writer:
+  #   kind: native_worker
+  #   llm: fast
+  #   skillset: writer
+  #   system_prompt: |
+  #     You are a writing specialist. Create clear, engaging content
+  #     based on the provided information.
+  #   description: "Specialist in content writing and editing"
+  #   timeout_seconds: 90
+
+# ============================================================================
+# Graph Configuration
+# ============================================================================
+# Configure the LangGraph execution parameters.
+
+graph:
+  max_iterations: 12            # Maximum routing iterations before stopping
+
+  timeouts:
+    worker_seconds: 60          # Default worker execution timeout
+    tool_call_seconds: 30       # Individual tool call timeout
+    external_agent_call_seconds: 40  # A2A agent call timeout
+
+# ============================================================================
+# API Server Configuration
+# ============================================================================
+# Configure the FastAPI server settings.
+
+serving:
+  api:
+    host: "0.0.0.0"
+    port: 7777
+    cors_origins:
+      - "*"                     # Allow all origins (restrict in production)
+
+# ============================================================================
+# Agent-to-Agent (A2A) Configuration
+# ============================================================================
+# Configure discovery and import of external agents via A2A protocol.
+
+a2a:
+  discovery:
+    seeds: []                   # URLs to discover agents from
+    # seeds:
+    #   - https://agents.example.com
+    #   - https://another-host.com/.well-known/agent.json
+    host_index_path: "/a2a/index.json"
+    well_known_paths:
+      - "/.well-known/agent.json"
+    timeout_seconds: 10
+
+  import_policy:
+    enabled: true
+    mode: langgraph_nodes       # Options: langgraph_nodes, tools_only
+    prefix: "ext::"             # Prefix for external agent names
+    include_tags: []            # Only import agents with these tags
+    exclude_names: []           # Exclude agents with these names
+    max_agents: 50              # Maximum number of external agents

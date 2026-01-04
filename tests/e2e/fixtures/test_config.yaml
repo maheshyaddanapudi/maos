@@ -1,0 +1,165 @@
+# Unified test configuration for all E2E tests
+#
+# KEY DESIGN PRINCIPLES:
+# - Supervisor auto-discovers agents via langgraph-supervisor
+# - Agents are bounded by their skillset (enforced by code, not prompts)
+# - Minimal prompts - no redundant information
+#
+# AGENT TYPES:
+# - General agents (analyst, researcher, assistant) - for most tests
+# - Specialized agents (timekeeper, mathematician, librarian) - for forced multi-agent tests
+
+llms:
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    temperature: 0.3
+
+mcp_servers:
+  test_tools:
+    transport: stdio
+    command:
+      - python3
+      - -m
+      - tests.mcp_servers.test_tools_server
+
+# Tools materialized from MCP
+tools:
+  current_time:
+    server: test_tools
+    tool_name: get_current_time
+    description: Get the current date and time
+
+  calculator:
+    server: test_tools
+    tool_name: calculate
+    description: Perform mathematical calculations
+
+  file_reader:
+    server: test_tools
+    tool_name: read_test_file
+    description: Read test file contents
+
+  echo_tool:
+    server: test_tools
+    tool_name: echo
+    description: Echo messages for testing
+
+# Skills - atomic capability groups
+skills:
+  time_operations:
+    description: Time information operations
+    tools:
+      - current_time
+
+  math_operations:
+    description: Mathematical calculations
+    tools:
+      - calculator
+
+  file_operations:
+    description: File reading operations
+    tools:
+      - file_reader
+
+  utility_operations:
+    description: Utility operations
+    tools:
+      - echo_tool
+
+# Skillsets - capability bundles for agents
+skillsets:
+  time_only:
+    description: Time operations only
+    skills:
+      - time_operations
+
+  math_only:
+    description: Math operations only
+    skills:
+      - math_operations
+
+  file_only:
+    description: File operations only
+    skills:
+      - file_operations
+
+  time_and_math:
+    description: Time and math capabilities
+    skills:
+      - time_operations
+      - math_operations
+
+  file_access:
+    description: File access capabilities
+    skills:
+      - file_operations
+
+  full_access:
+    description: All available capabilities
+    skills:
+      - time_operations
+      - math_operations
+      - file_operations
+      - utility_operations
+
+# Agents - minimal prompts, capabilities defined by skillsets
+agents:
+  supervisor:
+    kind: supervisor
+    llm: default
+    system_prompt: |
+      You are a supervisor that routes tasks to specialized workers.
+      Analyze requests and delegate to the appropriate worker.
+      If a task requires multiple capabilities, delegate sequentially.
+      Summarize results after workers complete.
+
+  # === GENERAL AGENTS (overlapping capabilities) ===
+  analyst:
+    kind: native_worker
+    llm: default
+    skillset: time_and_math
+    system_prompt: |
+      You are an analyst. Use your available tools to help with requests.
+    description: Analyst with time and math capabilities
+
+  researcher:
+    kind: native_worker
+    llm: default
+    skillset: file_access
+    system_prompt: |
+      You are a researcher. Use your available tools to help with requests.
+    description: Researcher with file reading capabilities
+
+  assistant:
+    kind: native_worker
+    llm: default
+    skillset: full_access
+    system_prompt: |
+      You are a general assistant. Use your available tools to help with requests.
+    description: General assistant with full tool access
+
+  # === SPECIALIZED AGENTS (isolated capabilities for multi-agent tests) ===
+  timekeeper:
+    kind: native_worker
+    llm: default
+    skillset: time_only
+    system_prompt: |
+      You are the timekeeper. Use your tools to help with time-related requests.
+    description: Handles time queries only
+
+  mathematician:
+    kind: native_worker
+    llm: default
+    skillset: math_only
+    system_prompt: |
+      You are the mathematician. Use your tools to solve math problems.
+    description: Handles mathematical calculations only
+
+  librarian:
+    kind: native_worker
+    llm: default
+    skillset: file_only
+    system_prompt: |
+      You are the librarian. Use your tools to read and analyze files.
+    description: Handles file reading only

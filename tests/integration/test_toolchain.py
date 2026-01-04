@@ -15,7 +15,7 @@ import pytest
 from pathlib import Path
 
 FIXTURES_DIR = Path(__file__).parent.parent / "e2e" / "fixtures"
-FULL_STACK_CONFIG = FIXTURES_DIR / "full_stack_config.yaml"
+TEST_CONFIG = FIXTURES_DIR / "test_config.yaml"
 
 
 class TestMCPToolChain:
@@ -33,7 +33,7 @@ class TestMCPToolChain:
 
         # Load configuration
         loader = ConfigLoader()
-        config = loader.load(str(FULL_STACK_CONFIG))
+        config = loader.load(str(TEST_CONFIG))
 
         print(f"\n=== Configuration Loaded ===")
         print(f"MCP Servers: {list(config.mcp_servers.keys())}")
@@ -125,7 +125,7 @@ class TestMCPToolChain:
 
         # Load configuration
         loader = ConfigLoader()
-        config = loader.load(str(FULL_STACK_CONFIG))
+        config = loader.load(str(TEST_CONFIG))
 
         # Initialize and connect MCP
         mcp_registry = MCPRegistry()
@@ -181,7 +181,7 @@ class TestMCPToolChain:
 
         # Load configuration
         loader = ConfigLoader()
-        config = loader.load(str(FULL_STACK_CONFIG))
+        config = loader.load(str(TEST_CONFIG))
 
         # Initialize MCP and connect
         mcp_registry = MCPRegistry()
@@ -261,7 +261,7 @@ class TestToolInvocationResults:
         from maos.tools.registry import ToolRegistry
 
         loader = ConfigLoader()
-        config = loader.load(str(FULL_STACK_CONFIG))
+        config = loader.load(str(TEST_CONFIG))
 
         mcp_registry = MCPRegistry()
         for name, server_config in config.mcp_servers.items():
@@ -300,7 +300,7 @@ class TestToolInvocationResults:
         from maos.tools.registry import ToolRegistry
 
         loader = ConfigLoader()
-        config = loader.load(str(FULL_STACK_CONFIG))
+        config = loader.load(str(TEST_CONFIG))
 
         mcp_registry = MCPRegistry()
         for name, server_config in config.mcp_servers.items():

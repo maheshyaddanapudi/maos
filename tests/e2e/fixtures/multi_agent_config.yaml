@@ -1,0 +1,40 @@
+llms:
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    temperature: 0.3
+
+agents:
+  supervisor:
+    kind: supervisor
+    llm: default
+    system_prompt: |
+      You are a supervisor that routes tasks to specialized workers.
+
+      Available workers:
+      - math_expert: For mathematical calculations and problems
+      - writer: For creative writing and text generation
+
+      IMPORTANT INSTRUCTIONS:
+      1. Analyze the user's request carefully
+      2. Route to the appropriate worker using route_to_<worker_name>
+      3. After receiving the worker's result, use finish_task to complete
+      4. If you need clarification from the user, use send_message
+
+      Always route math questions to math_expert and writing tasks to writer.
+
+  math_expert:
+    kind: native_worker
+    llm: default
+    system_prompt: |
+      You are a math expert. Solve mathematical problems step by step.
+      Be precise and show your work. Give the final answer clearly.
+    description: Solves mathematical problems
+
+  writer:
+    kind: native_worker
+    llm: default
+    system_prompt: |
+      You are a creative writer. Generate engaging and well-structured text.
+      Be creative but concise.
+    description: Creative writing and text generation

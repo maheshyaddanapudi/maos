@@ -1,0 +1,115 @@
+# MAOS Configuration Example
+# Multi-Agent Orchestration System
+
+# LLM Configurations
+llms:
+  default:
+    provider: openai
+    model: gpt-4o-mini
+    temperature: 0.7
+    max_tokens: 4096
+    api_key_env: OPENAI_API_KEY
+
+  # supervisor:
+  #   provider: anthropic
+  #   model: claude-3-sonnet-20240229
+  #   temperature: 0.5
+  #   api_key_env: ANTHROPIC_API_KEY
+
+  # local:
+  #   provider: ollama
+  #   model: llama3.1:8b
+  #   base_url: http://localhost:11434/v1
+
+# MCP Server Configurations (optional)
+mcp_servers: {}
+  # knowledge:
+  #   transport: stdio
+  #   command: ["python", "-m", "mcp_server_knowledge"]
+  #   timeout_seconds: 30
+
+  # github:
+  #   transport: http
+  #   url: http://localhost:8089
+  #   timeout_seconds: 30
+
+# Tool Configurations (optional)
+tools: {}
+  # search_web:
+  #   server: knowledge
+  #   tool_name: search.web
+  #   timeout_seconds: 30
+
+  # github_search:
+  #   server: github
+  #   tool_name: github.search_code
+
+# Skill Configurations (optional)
+skills: {}
+  # web_research:
+  #   tools:
+  #     - search_web
+  #   description: "Search and analyze web content"
+
+# Skillset Configurations (optional)
+skillsets: {}
+  # researcher:
+  #   skills:
+  #     - web_research
+  #   description: "Research-focused skillset"
+
+# Agent Configurations
+agents:
+  supervisor:
+    kind: supervisor
+    llm: default
+    system_prompt: |
+      You are a helpful supervisor agent that routes user requests to specialist workers.
+      
+      Analyze each request and decide:
+      1. If you can answer directly, respond with next="END"
+      2. If you need clarification, use the send_message tool
+      3. If a specialist is needed, route to the appropriate worker
+      
+      Always provide helpful, accurate responses.
+    description: "Main orchestration supervisor"
+
+  # general_worker:
+  #   kind: native_worker
+  #   llm: default
+  #   system_prompt: |
+  #     You are a helpful assistant. Answer questions accurately and helpfully.
+  #   description: "General-purpose assistant"
+  #   # skillset: researcher  # Uncomment if using skills/tools
+
+# A2A Configuration (optional)
+a2a:
+  discovery:
+    seeds: []
+    # seeds:
+    #   - http://localhost:9001
+    timeout_seconds: 10
+  import_policy:
+    enabled: false
+    mode: langgraph_nodes
+    max_agents: 25
+
+# Graph Configuration
+graph:
+  max_iterations: 12
+  timeouts:
+    worker_seconds: 60
+    tool_call_seconds: 30
+    external_agent_seconds: 40
+    total_execution_seconds: 300
+
+# Serving Configuration
+serving:
+  api:
+    host: "127.0.0.1"
+    port: 7777
+    cors_origins:
+      - "*"
+    openai_compatible: true
+  ui:
+    mode: none

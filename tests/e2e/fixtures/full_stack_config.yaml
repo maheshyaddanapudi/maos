@@ -1,0 +1,134 @@
+# Full-stack MAOS configuration for E2E testing
+# Tests: MCP servers → Tools → Skills → Skillsets → Agents
+
+llms:
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    temperature: 0.3
+
+# MCP Servers - connect to tool providers
+mcp_servers:
+  test_tools:
+    transport: stdio
+    command:
+      - python3
+      - -m
+      - tests.mcp_servers.test_tools_server
+
+# Tools - materialized from MCP servers
+tools:
+  # Time tools
+  current_time:
+    server: test_tools
+    tool_name: get_current_time
+    description: Get the current date and time
+
+  # Math tools
+  calculator:
+    server: test_tools
+    tool_name: calculate
+    description: Perform mathematical calculations
+
+  # File tools
+  file_reader:
+    server: test_tools
+    tool_name: read_test_file
+    description: Read test file contents
+
+  # Utility tools
+  echo_tool:
+    server: test_tools
+    tool_name: echo
+    description: Echo messages for testing
+
+# Skills - group related tools
+skills:
+  time_operations:
+    description: Operations for getting time information
+    tools:
+      - current_time
+
+  math_operations:
+    description: Mathematical calculations and operations
+    tools:
+      - calculator
+
+  file_operations:
+    description: File reading operations
+    tools:
+      - file_reader
+
+  utility_operations:
+    description: Utility tools for testing
+    tools:
+      - echo_tool
+
+# Skillsets - assign skills to agents
+skillsets:
+  time_and_math:
+    description: Time and math capabilities
+    skills:
+      - time_operations
+      - math_operations
+
+  file_access:
+    description: File access capabilities
+    skills:
+      - file_operations
+
+  full_access:
+    description: All available skills
+    skills:
+      - time_operations
+      - math_operations
+      - file_operations
+      - utility_operations
+
+# Agents
+agents:
+  supervisor:
+    kind: supervisor
+    llm: default
+    system_prompt: |
+      You are a supervisor that routes tasks to specialized workers.
+
+      Analyze user requests and delegate to the most appropriate worker.
+      If a task requires multiple skills, you may need to call multiple workers.
+      Use send_message if you need clarification from the user.
+
+      After workers complete their tasks, summarize the results for the user.
+
+  # Worker with time and math skills
+  analyst:
+    kind: native_worker
+    llm: default
+    skillset: time_and_math
+    system_prompt: |
+      You are an analyst with access to time and calculation tools.
+      Use get_current_time to check the time.
+      Use calculate to perform math operations.
+      Always show your work and explain your calculations.
+    description: Analyst with time and math capabilities
+
+  # Worker with file access
+  researcher:
+    kind: native_worker
+    llm: default
+    skillset: file_access
+    system_prompt: |
+      You are a researcher with access to file reading tools.
+      Use read_test_file to read file contents.
+      Summarize and analyze file contents for the user.
+    description: Researcher with file reading capabilities
+
+  # Worker with all tools (for complex tasks)
+  assistant:
+    kind: native_worker
+    llm: default
+    skillset: full_access
+    system_prompt: |
+      You are a general assistant with access to all available tools.
+      Use the appropriate tools based on the task requirements.
+      Be thorough and explain your process.
+    description: General assistant with full tool access

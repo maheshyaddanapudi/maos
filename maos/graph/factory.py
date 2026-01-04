@@ -274,15 +274,58 @@ class GraphFactory:
 
     def _convert_to_langchain_tool(self, tool) -> BaseTool:
         """Convert a MAOS tool to a LangChain tool."""
+        from pydantic import create_model, Field
+        from typing import Any
+
+        # Build Pydantic model from tool's JSON schema
+        field_definitions = {}
+        schema = tool.input_schema
+        properties = schema.properties if hasattr(schema, 'properties') else {}
+        required = schema.required if hasattr(schema, 'required') else []
+
+        for prop_name, prop_schema in properties.items():
+            prop_type = str  # Default to string
+            if isinstance(prop_schema, dict):
+                json_type = prop_schema.get("type", "string")
+                if json_type == "integer":
+                    prop_type = int
+                elif json_type == "number":
+                    prop_type = float
+                elif json_type == "boolean":
+                    prop_type = bool
+                elif json_type == "array":
+                    prop_type = list
+                elif json_type == "object":
+                    prop_type = dict
+
+                description = prop_schema.get("description", "")
+                default = prop_schema.get("default", ...)
+
+                if prop_name in required:
+                    field_definitions[prop_name] = (prop_type, Field(description=description))
+                else:
+                    field_definitions[prop_name] = (prop_type, Field(default=default, description=description))
+
+        # Create dynamic Pydantic model for args
+        if field_definitions:
+            ArgsModel = create_model(f"{tool.name}Args", **field_definitions)
+        else:
+            ArgsModel = None
+
         async def invoke_tool(**kwargs) -> str:
             try:
-                result = await tool.invoke(kwargs)
+                result = await tool.call(kwargs)
                 return str(result)
             except Exception as e:
                 return f"Error: {e}"
 
-        return StructuredTool.from_function(
-            coroutine=invoke_tool,
-            name=tool.name,
-            description=tool.description or f"Tool: {tool.name}",
-        )
+        tool_kwargs = {
+            "coroutine": invoke_tool,
+            "name": tool.name,
+            "description": tool.description or f"Tool: {tool.name}",
+        }
+
+        if ArgsModel:
+            tool_kwargs["args_schema"] = ArgsModel
+
+        return StructuredTool.from_function(**tool_kwargs)

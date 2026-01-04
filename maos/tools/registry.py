@@ -53,7 +53,12 @@ class ToolRegistry:
             raise ValueError(f"MCP server not connected: {config.server}")
 
         # Find tool definition on server
-        mcp_tool = connection.get_tool(config.tool_name)
+        mcp_tool = None
+        for t in connection.tools:
+            if t.name == config.tool_name:
+                mcp_tool = t
+                break
+
         if mcp_tool is None:
             raise ValueError(
                 f"Tool '{config.tool_name}' not found on server '{config.server}'"
@@ -72,7 +77,7 @@ class ToolRegistry:
 
         # Bind the invoke function
         async def invoke(args: Dict, conn=connection, tool_name=config.tool_name):
-            return await conn.invoke_tool(tool_name, args)
+            return await conn.call_tool(tool_name, args)
 
         tool.set_invoke_fn(invoke)
 

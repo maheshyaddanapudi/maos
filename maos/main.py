@@ -70,11 +70,15 @@ async def initialize_system(config_path: str, checkpointer=None):
         llm_registry.register_adapter(name, adapter)
     logger.info("llm_registry_initialized", count=len(config.llms))
 
-    # Initialize MCP registry and connect to servers
+    # Initialize MCP registry and register server configs
     mcp_registry = MCPRegistry()
     for name, server_config in config.mcp_servers.items():
         await mcp_registry.register(name, server_config)
-    logger.info("mcp_registry_initialized", count=len(config.mcp_servers))
+
+    # Connect to all MCP servers
+    if config.mcp_servers:
+        await mcp_registry.connect_all()
+    logger.info("mcp_registry_initialized", count=len(mcp_registry))
 
     # Initialize Tool registry and materialize tools from config
     tool_registry = ToolRegistry(mcp_registry=mcp_registry)

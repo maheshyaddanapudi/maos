@@ -126,6 +126,7 @@ async def initialize_system(config_path: str, checkpointer=None):
         agent_registry=agent_registry,
         llm_factory=llm_factory,
         tool_registry=tool_registry,
+        a2a_client=a2a_client,
     )
 
     # Use provided checkpointer or create memory saver

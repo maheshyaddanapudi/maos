@@ -97,6 +97,15 @@ class LLMFactory:
         else:
             raise ConfigError(f"Unsupported LLM provider: {provider}")
 
+    # Default environment variable names for each provider
+    _DEFAULT_API_KEY_ENVS: dict[LLMProvider, str] = {
+        LLMProvider.OPENAI: "OPENAI_API_KEY",
+        LLMProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
+        LLMProvider.GOOGLE: "GOOGLE_API_KEY",
+        LLMProvider.OPENAI_COMPATIBLE: "OPENAI_API_KEY",
+        LLMProvider.AZURE_OPENAI: "AZURE_OPENAI_API_KEY",
+    }
+
     def _resolve_api_key(self, config: LLMConfig) -> str | None:
         """Resolve API key from environment variable.
 
@@ -109,14 +118,22 @@ class LLMFactory:
         if config.provider == LLMProvider.OLLAMA:
             return None
 
+        # Check explicit api_key_env first
         if config.api_key_env:
             api_key = os.environ.get(config.api_key_env)
-            if not api_key:
-                log.warning(
-                    "api_key_not_found",
-                    env_var=config.api_key_env,
-                    provider=config.provider,
-                )
-            return api_key
+            if api_key:
+                return api_key
+            log.warning(
+                "api_key_not_found",
+                env_var=config.api_key_env,
+                provider=config.provider,
+            )
+
+        # Fall back to default environment variable for provider
+        default_env = self._DEFAULT_API_KEY_ENVS.get(config.provider)
+        if default_env:
+            api_key = os.environ.get(default_env)
+            if api_key:
+                return api_key
 
         return None

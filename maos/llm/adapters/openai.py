@@ -1,14 +1,21 @@
 """
 MAOS OpenAI LLM Adapter.
 
-Provides OpenAI API integration.
+Uses LangChain's ChatOpenAI for OpenAI API integration.
 """
 
 import json
 from collections.abc import AsyncIterator
 
 import structlog
-from openai import AsyncOpenAI
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langchain_openai import ChatOpenAI
 
 from maos.errors import LLMError
 from maos.llm.base import (
@@ -24,7 +31,7 @@ log = structlog.get_logger()
 
 
 class OpenAIAdapter(BaseLLMAdapter):
-    """OpenAI LLM adapter."""
+    """OpenAI LLM adapter using LangChain."""
 
     def __init__(
         self,
@@ -36,56 +43,59 @@ class OpenAIAdapter(BaseLLMAdapter):
         timeout: float = 60.0,
     ):
         super().__init__(model, temperature, max_tokens)
-        self._client = AsyncOpenAI(
+        self._client = ChatOpenAI(
+            model=model,
             api_key=api_key,
             base_url=base_url,
+            temperature=temperature,
+            max_tokens=max_tokens,
             timeout=timeout,
         )
 
-    def _convert_messages(self, messages: list[Message]) -> list[dict]:
-        """Convert messages to OpenAI format."""
-        result = []
+    def _convert_messages(self, messages: list[Message]) -> list[BaseMessage]:
+        """Convert messages to LangChain format."""
+        result: list[BaseMessage] = []
         for msg in messages:
-            d: dict = {"role": msg.role, "content": msg.content or ""}
-            if msg.name:
-                d["name"] = msg.name
-            if msg.tool_calls:
-                d["tool_calls"] = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
+            content = msg.content or ""
+            if msg.role == "system":
+                result.append(SystemMessage(content=content))
+            elif msg.role == "user":
+                result.append(HumanMessage(content=content))
+            elif msg.role == "assistant":
+                if msg.tool_calls:
+                    tool_calls = [
+                        {
+                            "id": tc.id,
                             "name": tc.name,
-                            "arguments": json.dumps(tc.arguments),
-                        },
-                    }
-                    for tc in msg.tool_calls
-                ]
-            if msg.tool_call_id:
-                d["tool_call_id"] = msg.tool_call_id
-            result.append(d)
+                            "args": tc.arguments,
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                    result.append(AIMessage(content=content, tool_calls=tool_calls))
+                else:
+                    result.append(AIMessage(content=content))
+            elif msg.role == "tool":
+                result.append(ToolMessage(
+                    content=content,
+                    tool_call_id=msg.tool_call_id or "",
+                ))
         return result
 
     def _convert_tools(self, tools: list[ToolDefinition]) -> list[dict]:
-        """Convert tools to OpenAI format."""
+        """Convert tools to LangChain format."""
         return [t.to_openai_format() for t in tools]
 
-    def _parse_tool_calls(self, tool_calls: list | None) -> list[ToolCall]:
-        """Parse tool calls from OpenAI response."""
-        if not tool_calls:
+    def _parse_tool_calls(self, ai_message: AIMessage) -> list[ToolCall]:
+        """Parse tool calls from AIMessage."""
+        if not ai_message.tool_calls:
             return []
 
         result = []
-        for tc in tool_calls:
-            try:
-                args = json.loads(tc.function.arguments) if tc.function.arguments else {}
-            except json.JSONDecodeError:
-                args = {"raw": tc.function.arguments}
-
+        for tc in ai_message.tool_calls:
             result.append(ToolCall(
-                id=tc.id,
-                name=tc.function.name,
-                arguments=args,
+                id=tc.get("id", ""),
+                name=tc.get("name", ""),
+                arguments=tc.get("args", {}),
             ))
         return result
 
@@ -94,114 +104,104 @@ class OpenAIAdapter(BaseLLMAdapter):
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
-        """Invoke OpenAI API."""
+        """Invoke using LangChain ChatOpenAI."""
         try:
-            kwargs: dict = {
-                "model": self._model,
-                "messages": self._convert_messages(messages),
-                "temperature": self._temperature,
-            }
-
-            if self._max_tokens:
-                kwargs["max_tokens"] = self._max_tokens
-
-            if tools:
-                kwargs["tools"] = self._convert_tools(tools)
+            lc_messages = self._convert_messages(messages)
 
             log.debug("openai_invoke", model=self._model, message_count=len(messages))
 
-            response = await self._client.chat.completions.create(**kwargs)
+            if tools:
+                lc_tools = self._convert_tools(tools)
+                client_with_tools = self._client.bind_tools(lc_tools)
+                response = await client_with_tools.ainvoke(lc_messages)
+            else:
+                response = await self._client.ainvoke(lc_messages)
 
-            choice = response.choices[0]
-            message = choice.message
+            # Extract response
+            content = response.content if isinstance(response.content, str) else ""
+            tool_calls = self._parse_tool_calls(response) if isinstance(response, AIMessage) else []
+
+            # Get usage if available
+            usage = {}
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                usage = {
+                    "prompt_tokens": response.usage_metadata.get("input_tokens", 0),
+                    "completion_tokens": response.usage_metadata.get("output_tokens", 0),
+                    "total_tokens": response.usage_metadata.get("total_tokens", 0),
+                }
 
             return LLMResponse(
-                content=message.content,
-                tool_calls=self._parse_tool_calls(message.tool_calls),
-                usage={
-                    "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                    "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                    "total_tokens": response.usage.total_tokens if response.usage else 0,
-                },
-                model=response.model,
-                finish_reason=choice.finish_reason,
+                content=content,
+                tool_calls=tool_calls,
+                usage=usage,
+                model=self._model,
+                finish_reason="stop" if not tool_calls else "tool_calls",
             )
         except Exception as e:
             log.error("openai_error", error=str(e))
-            raise LLMError(f"OpenAI API error: {e}")
+            raise LLMError(f"OpenAI API error: {e}") from e
 
     async def stream(
         self,
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
     ) -> AsyncIterator[LLMChunk]:
-        """Stream OpenAI response."""
+        """Stream using LangChain ChatOpenAI."""
         try:
-            kwargs: dict = {
-                "model": self._model,
-                "messages": self._convert_messages(messages),
-                "temperature": self._temperature,
-                "stream": True,
-            }
-
-            if self._max_tokens:
-                kwargs["max_tokens"] = self._max_tokens
-
-            if tools:
-                kwargs["tools"] = self._convert_tools(tools)
+            lc_messages = self._convert_messages(messages)
 
             log.debug("openai_stream", model=self._model, message_count=len(messages))
 
-            stream = await self._client.chat.completions.create(**kwargs)
+            if tools:
+                lc_tools = self._convert_tools(tools)
+                client_with_tools = self._client.bind_tools(lc_tools)
+                stream = client_with_tools.astream(lc_messages)
+            else:
+                stream = self._client.astream(lc_messages)
 
-            accumulated_tool_calls: dict[int, dict] = {}
+            accumulated_tool_calls: dict[str, dict] = {}
+            full_content = ""
 
             async for chunk in stream:
-                if not chunk.choices:
-                    continue
+                if hasattr(chunk, "content") and chunk.content:
+                    full_content += chunk.content
+                    yield LLMChunk(content=chunk.content, done=False)
 
-                delta = chunk.choices[0].delta
-                finish_reason = chunk.choices[0].finish_reason
-
-                # Handle tool calls accumulation
-                if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in accumulated_tool_calls:
-                            accumulated_tool_calls[idx] = {
-                                "id": tc.id or "",
-                                "name": tc.function.name if tc.function else "",
+                # Accumulate tool calls
+                if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                    for tc_chunk in chunk.tool_call_chunks:
+                        tc_id = tc_chunk.get("id") or tc_chunk.get("index", 0)
+                        if tc_id not in accumulated_tool_calls:
+                            accumulated_tool_calls[tc_id] = {
+                                "id": tc_chunk.get("id", ""),
+                                "name": tc_chunk.get("name", ""),
                                 "arguments": "",
                             }
-                        if tc.function and tc.function.arguments:
-                            accumulated_tool_calls[idx]["arguments"] += tc.function.arguments
+                        if tc_chunk.get("args"):
+                            accumulated_tool_calls[tc_id]["arguments"] += tc_chunk["args"]
 
-                # Yield content chunks
-                if delta.content:
-                    yield LLMChunk(
-                        content=delta.content,
-                        done=False,
-                    )
+            # Final chunk
+            tool_calls = None
+            if accumulated_tool_calls:
+                tool_calls = []
+                for tc in accumulated_tool_calls.values():
+                    try:
+                        args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    tool_calls.append(ToolCall(
+                        id=tc["id"],
+                        name=tc["name"],
+                        arguments=args,
+                    ))
 
-                # Final chunk with tool calls
-                if finish_reason:
-                    tool_calls = None
-                    if accumulated_tool_calls:
-                        tool_calls = [
-                            ToolCall(
-                                id=tc["id"],
-                                name=tc["name"],
-                                arguments=json.loads(tc["arguments"]) if tc["arguments"] else {},
-                            )
-                            for tc in accumulated_tool_calls.values()
-                        ]
+            yield LLMChunk(
+                content="",
+                done=True,
+                tool_calls=tool_calls,
+                finish_reason="stop" if not tool_calls else "tool_calls",
+            )
 
-                    yield LLMChunk(
-                        content="",
-                        done=True,
-                        tool_calls=tool_calls,
-                        finish_reason=finish_reason,
-                    )
         except Exception as e:
             log.error("openai_stream_error", error=str(e))
-            raise LLMError(f"OpenAI streaming error: {e}")
+            raise LLMError(f"OpenAI streaming error: {e}") from e

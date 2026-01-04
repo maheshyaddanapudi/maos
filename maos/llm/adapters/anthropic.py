@@ -1,14 +1,20 @@
 """
 MAOS Anthropic LLM Adapter.
 
-Provides Anthropic Claude API integration.
+Uses LangChain's ChatAnthropic for Anthropic API integration.
 """
 
 import json
 from collections.abc import AsyncIterator
 
 import structlog
-from anthropic import AsyncAnthropic
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
 
 from maos.errors import LLMError
 from maos.llm.base import (
@@ -24,7 +30,7 @@ log = structlog.get_logger()
 
 
 class AnthropicAdapter(BaseLLMAdapter):
-    """Anthropic Claude LLM adapter."""
+    """Anthropic LLM adapter using LangChain."""
 
     def __init__(
         self,
@@ -35,194 +41,172 @@ class AnthropicAdapter(BaseLLMAdapter):
         timeout: float = 60.0,
     ):
         super().__init__(model, temperature, max_tokens)
-        self._client = AsyncAnthropic(
+        self._client = ChatAnthropic(
+            model=model,
             api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens or 4096,  # Anthropic requires max_tokens
             timeout=timeout,
         )
-        # Anthropic requires max_tokens
-        if not self._max_tokens:
-            self._max_tokens = 4096
 
-    def _convert_messages(self, messages: list[Message]) -> tuple[str | None, list[dict]]:
-        """Convert messages to Anthropic format.
-
-        Returns:
-            Tuple of (system_prompt, messages)
-        """
-        system_prompt = None
-        result = []
+    def _convert_messages(self, messages: list[Message]) -> tuple[str | None, list[BaseMessage]]:
+        """Convert messages to LangChain format, extracting system message."""
+        system_message = None
+        result: list[BaseMessage] = []
 
         for msg in messages:
+            content = msg.content or ""
             if msg.role == "system":
-                system_prompt = msg.content
-                continue
-
-            role = "assistant" if msg.role == "assistant" else "user"
-
-            # Handle tool results
-            if msg.role == "tool" and msg.tool_call_id:
-                result.append({
-                    "role": "user",
-                    "content": [
+                system_message = content
+            elif msg.role == "user":
+                result.append(HumanMessage(content=content))
+            elif msg.role == "assistant":
+                if msg.tool_calls:
+                    tool_calls = [
                         {
-                            "type": "tool_result",
-                            "tool_use_id": msg.tool_call_id,
-                            "content": msg.content,
+                            "id": tc.id,
+                            "name": tc.name,
+                            "args": tc.arguments,
                         }
-                    ],
-                })
-                continue
-
-            # Handle assistant messages with tool calls
-            if msg.tool_calls:
-                content = []
-                if msg.content:
-                    content.append({"type": "text", "text": msg.content})
-                for tc in msg.tool_calls:
-                    content.append({
-                        "type": "tool_use",
-                        "id": tc.id,
-                        "name": tc.name,
-                        "input": tc.arguments,
-                    })
-                result.append({"role": role, "content": content})
-            else:
-                result.append({"role": role, "content": msg.content or ""})
-
-        return system_prompt, result
-
-    def _convert_tools(self, tools: list[ToolDefinition]) -> list[dict]:
-        """Convert tools to Anthropic format."""
-        return [t.to_anthropic_format() for t in tools]
-
-    def _parse_response(self, content: list) -> tuple[str | None, list[ToolCall]]:
-        """Parse Anthropic response content."""
-        text_parts = []
-        tool_calls = []
-
-        for block in content:
-            if block.type == "text":
-                text_parts.append(block.text)
-            elif block.type == "tool_use":
-                tool_calls.append(ToolCall(
-                    id=block.id,
-                    name=block.name,
-                    arguments=block.input if isinstance(block.input, dict) else {},
+                        for tc in msg.tool_calls
+                    ]
+                    result.append(AIMessage(content=content, tool_calls=tool_calls))
+                else:
+                    result.append(AIMessage(content=content))
+            elif msg.role == "tool":
+                result.append(ToolMessage(
+                    content=content,
+                    tool_call_id=msg.tool_call_id or "",
                 ))
 
-        text_content = "\n".join(text_parts) if text_parts else None
-        return text_content, tool_calls
+        return system_message, result
+
+    def _convert_tools(self, tools: list[ToolDefinition]) -> list[dict]:
+        """Convert tools to LangChain format."""
+        return [t.to_openai_format() for t in tools]
+
+    def _parse_tool_calls(self, ai_message: AIMessage) -> list[ToolCall]:
+        """Parse tool calls from AIMessage."""
+        if not ai_message.tool_calls:
+            return []
+
+        result = []
+        for tc in ai_message.tool_calls:
+            result.append(ToolCall(
+                id=tc.get("id", ""),
+                name=tc.get("name", ""),
+                arguments=tc.get("args", {}),
+            ))
+        return result
 
     async def invoke(
         self,
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
-        """Invoke Anthropic API."""
+        """Invoke using LangChain ChatAnthropic."""
         try:
-            system_prompt, converted_messages = self._convert_messages(messages)
-
-            kwargs: dict = {
-                "model": self._model,
-                "messages": converted_messages,
-                "max_tokens": self._max_tokens,
-            }
-
-            if system_prompt:
-                kwargs["system"] = system_prompt
-
-            if self._temperature != 1.0:
-                kwargs["temperature"] = self._temperature
-
-            if tools:
-                kwargs["tools"] = self._convert_tools(tools)
+            system_msg, lc_messages = self._convert_messages(messages)
 
             log.debug("anthropic_invoke", model=self._model, message_count=len(messages))
 
-            response = await self._client.messages.create(**kwargs)
+            # Configure client with system message if present
+            client = self._client
+            if system_msg:
+                client = client.bind(system=system_msg)
 
-            text_content, tool_calls = self._parse_response(response.content)
+            if tools:
+                lc_tools = self._convert_tools(tools)
+                client = client.bind_tools(lc_tools)
+
+            response = await client.ainvoke(lc_messages)
+
+            # Extract response
+            content = response.content if isinstance(response.content, str) else ""
+            tool_calls = self._parse_tool_calls(response) if isinstance(response, AIMessage) else []
+
+            # Get usage if available
+            usage = {}
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                usage = {
+                    "prompt_tokens": response.usage_metadata.get("input_tokens", 0),
+                    "completion_tokens": response.usage_metadata.get("output_tokens", 0),
+                    "total_tokens": response.usage_metadata.get("total_tokens", 0),
+                }
 
             return LLMResponse(
-                content=text_content,
+                content=content,
                 tool_calls=tool_calls,
-                usage={
-                    "prompt_tokens": response.usage.input_tokens,
-                    "completion_tokens": response.usage.output_tokens,
-                    "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
-                },
-                model=response.model,
-                finish_reason=response.stop_reason,
+                usage=usage,
+                model=self._model,
+                finish_reason="stop" if not tool_calls else "tool_calls",
             )
         except Exception as e:
             log.error("anthropic_error", error=str(e))
-            raise LLMError(f"Anthropic API error: {e}")
+            raise LLMError(f"Anthropic API error: {e}") from e
 
     async def stream(
         self,
         messages: list[Message],
         tools: list[ToolDefinition] | None = None,
     ) -> AsyncIterator[LLMChunk]:
-        """Stream Anthropic response."""
+        """Stream using LangChain ChatAnthropic."""
         try:
-            system_prompt, converted_messages = self._convert_messages(messages)
-
-            kwargs: dict = {
-                "model": self._model,
-                "messages": converted_messages,
-                "max_tokens": self._max_tokens,
-            }
-
-            if system_prompt:
-                kwargs["system"] = system_prompt
-
-            if self._temperature != 1.0:
-                kwargs["temperature"] = self._temperature
-
-            if tools:
-                kwargs["tools"] = self._convert_tools(tools)
+            system_msg, lc_messages = self._convert_messages(messages)
 
             log.debug("anthropic_stream", model=self._model, message_count=len(messages))
 
-            accumulated_tool_uses: dict[str, dict] = {}
-            current_tool_id = None
+            client = self._client
+            if system_msg:
+                client = client.bind(system=system_msg)
 
-            async with self._client.messages.stream(**kwargs) as stream:
-                async for event in stream:
-                    if event.type == "content_block_start":
-                        if hasattr(event.content_block, "type"):
-                            if event.content_block.type == "tool_use":
-                                current_tool_id = event.content_block.id
-                                accumulated_tool_uses[current_tool_id] = {
-                                    "id": current_tool_id,
-                                    "name": event.content_block.name,
-                                    "arguments": "",
-                                }
+            if tools:
+                lc_tools = self._convert_tools(tools)
+                client = client.bind_tools(lc_tools)
 
-                    elif event.type == "content_block_delta":
-                        if hasattr(event.delta, "text"):
-                            yield LLMChunk(content=event.delta.text, done=False)
-                        elif hasattr(event.delta, "partial_json"):
-                            if current_tool_id and current_tool_id in accumulated_tool_uses:
-                                accumulated_tool_uses[current_tool_id]["arguments"] += event.delta.partial_json
+            stream = client.astream(lc_messages)
 
-                    elif event.type == "message_stop":
-                        tool_calls = None
-                        if accumulated_tool_uses:
-                            tool_calls = [
-                                ToolCall(
-                                    id=tc["id"],
-                                    name=tc["name"],
-                                    arguments=json.loads(tc["arguments"]) if tc["arguments"] else {},
-                                )
-                                for tc in accumulated_tool_uses.values()
-                            ]
-                        yield LLMChunk(
-                            content="",
-                            done=True,
-                            tool_calls=tool_calls,
-                        )
-                        return
+            accumulated_tool_calls: dict[str, dict] = {}
+
+            async for chunk in stream:
+                if hasattr(chunk, "content") and chunk.content:
+                    yield LLMChunk(content=chunk.content, done=False)
+
+                # Accumulate tool calls
+                if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                    for tc_chunk in chunk.tool_call_chunks:
+                        tc_id = tc_chunk.get("id") or str(tc_chunk.get("index", 0))
+                        if tc_id not in accumulated_tool_calls:
+                            accumulated_tool_calls[tc_id] = {
+                                "id": tc_chunk.get("id", ""),
+                                "name": tc_chunk.get("name", ""),
+                                "arguments": "",
+                            }
+                        if tc_chunk.get("args"):
+                            accumulated_tool_calls[tc_id]["arguments"] += tc_chunk["args"]
+
+            # Final chunk
+            tool_calls = None
+            if accumulated_tool_calls:
+                tool_calls = []
+                for tc in accumulated_tool_calls.values():
+                    try:
+                        args = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    tool_calls.append(ToolCall(
+                        id=tc["id"],
+                        name=tc["name"],
+                        arguments=args,
+                    ))
+
+            yield LLMChunk(
+                content="",
+                done=True,
+                tool_calls=tool_calls,
+                finish_reason="stop" if not tool_calls else "tool_calls",
+            )
+
         except Exception as e:
             log.error("anthropic_stream_error", error=str(e))
-            raise LLMError(f"Anthropic streaming error: {e}")
+            raise LLMError(f"Anthropic streaming error: {e}") from e

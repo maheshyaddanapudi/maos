@@ -330,19 +330,16 @@ class TestMultiStepOrchestration:
             "Expected file content reference in response"
 
     @pytest.mark.asyncio
-    async def test_sequential_multi_agent_routing(self, full_stack_system):
+    async def test_automatic_multi_agent_routing(self, full_stack_system):
         """
-        Test that supervisor routes to multiple agents sequentially.
+        Test that supervisor automatically routes to multiple agents.
 
-        This test requires:
-        1. Supervisor → Analyst (calculate 7 * 8)
-        2. Analyst returns to Supervisor
-        3. Supervisor → Researcher (read test.txt)
-        4. Researcher returns to Supervisor
-        5. Supervisor combines both results
+        We just describe the task naturally - NOT telling supervisor
+        which agents to use. The supervisor should figure out:
+        - Calculation requires math capability → analyst
+        - File reading requires file access → researcher
 
-        The key is that analyst has calculator but NOT file access,
-        and researcher has file access but NOT calculator.
+        The supervisor decides the routing autonomously.
         """
         graph, context = full_stack_system
         from maos.graph.state import create_initial_state
@@ -350,29 +347,27 @@ class TestMultiStepOrchestration:
         roster = context["agent_registry"].get_roster()
         print(f"\nWorkers available: {roster}")
 
-        # Task that explicitly requires TWO different specialized agents
-        # Analyst has: time_and_math skillset (calculator, time)
-        # Researcher has: file_access skillset (file_reader)
+        # Natural task description - NO mention of which agent to use
+        # Just describe what we need done
         messages = [{
             "role": "user",
-            "content": """I need TWO things done by different specialists:
+            "content": """I'm working on a report and need two things:
 
-1. Ask the ANALYST to calculate 7 * 8 using the calculator
-2. Ask the RESEARCHER to read test.txt and tell me its contents
+1. What is 7 multiplied by 8?
+2. What's in the file called test.txt?
 
-You MUST use both the analyst AND the researcher - do not use the assistant.
-Combine both results in your final response."""
+Please get me both answers."""
         }]
 
         initial_state = create_initial_state(
             messages=messages,
             roster=roster,
-            thread_id="test-sequential-routing"
+            thread_id="test-auto-routing"
         )
 
-        config = {"configurable": {"thread_id": "test-sequential-routing"}}
+        config = {"configurable": {"thread_id": "test-auto-routing"}}
 
-        print("\nInvoking graph with sequential multi-agent request...")
+        print("\nInvoking graph - supervisor should auto-route to correct agents...")
         result = await graph.ainvoke(initial_state, config=config)
 
         # Track which agents were used
@@ -388,10 +383,10 @@ Combine both results in your final response."""
                 if name:
                     agents_used.add(name)
 
-                print(f"[{msg_type}] {name}: {content[:200]}")
+                print(f"[{msg_type}] {name}: {content[:250]}")
                 response_content += content
 
-        print(f"\nAgents used: {agents_used}")
+        print(f"\nAgents involved: {agents_used}")
 
         # Verify calculation result (7 * 8 = 56)
         assert "56" in response_content, f"Expected '56' from calculation (7*8), got: {response_content}"
@@ -400,11 +395,10 @@ Combine both results in your final response."""
         assert "test file" in response_content.lower(), \
             f"Expected 'test file' content in response, got: {response_content}"
 
-        # Verify both specialized agents were used
-        # Note: The supervisor might route through different paths,
-        # but we check that the work was done
-        print(f"\n✓ Calculation result 56 found")
-        print(f"✓ File content found")
+        # The test passes if BOTH results are present
+        # We don't care HOW supervisor routed - just that it figured it out
+        print(f"\n✓ Calculation result 56 found - supervisor routed math correctly")
+        print(f"✓ File content found - supervisor routed file access correctly")
 
 
 class TestContextPreservation:

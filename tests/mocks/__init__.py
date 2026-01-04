@@ -8,7 +8,6 @@ from tests.mocks.llm import (
 from tests.mocks.mcp import (
     MockMCPConnection,
     MockMCPRegistry,
-    MockMCPTransport,
 )
 
 __all__ = [
@@ -17,5 +16,4 @@ __all__ = [
     "MockToolCallingLLM",
     "MockMCPConnection",
     "MockMCPRegistry",
-    "MockMCPTransport",
 ]

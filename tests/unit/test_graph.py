@@ -12,10 +12,6 @@ from maos.graph.state import (
     WorkerResult,
     create_initial_state,
 )
-from maos.graph.nodes.supervisor import SupervisorNode
-from maos.graph.nodes.worker import NativeWorkerNode
-
-from tests.mocks.llm import MockLLMAdapter, MockSupervisorLLM
 
 
 class TestResultType:
@@ -151,117 +147,6 @@ class TestCreateInitialState:
         assert state["task"] == "Second message"
 
 
-class TestSupervisorNode:
-    """Tests for SupervisorNode."""
-
-    @pytest.fixture
-    def supervisor(self):
-        """Create a supervisor node with mock LLM."""
-        llm = MockSupervisorLLM(routing_sequence=["worker1", "END"])
-        return SupervisorNode(
-            llm=llm,
-            roster=["worker1", "worker2"],
-            max_iterations=10
-        )
-
-    @pytest.mark.asyncio
-    async def test_routing_decision(self, supervisor, sample_graph_state):
-        """Test supervisor makes routing decision."""
-        result = await supervisor.run(sample_graph_state)
-
-        assert "next" in result
-        assert result["iteration"] == 1
-
-    @pytest.mark.asyncio
-    async def test_max_iterations(self):
-        """Test supervisor respects max iterations."""
-        llm = MockSupervisorLLM(routing_sequence=["worker1"])
-        supervisor = SupervisorNode(llm=llm, roster=["worker1"], max_iterations=3)
-
-        # State with high iteration count
-        state = {
-            "messages": [{"role": "user", "content": "Test"}],
-            "iteration": 3,  # At limit
-            "next": None,
-            "done": False
-        }
-
-        result = await supervisor.run(state)
-
-        assert result["next"] == "END"
-        assert result["done"]
-
-    def test_roster_property(self, supervisor):
-        """Test roster property."""
-        assert supervisor.roster == ["worker1", "worker2"]
-
-    def test_update_roster(self, supervisor):
-        """Test updating roster."""
-        supervisor.update_roster(["new_worker"])
-        assert supervisor.roster == ["new_worker"]
-
-
-class TestNativeWorkerNode:
-    """Tests for NativeWorkerNode."""
-
-    @pytest.fixture
-    def worker_agent(self):
-        """Create a mock worker agent."""
-        agent = MagicMock()
-        agent.name = "test_worker"
-        agent.system_prompt = "You are a helpful assistant."
-        return agent
-
-    @pytest.fixture
-    def worker_node(self, worker_agent):
-        """Create a worker node with mock LLM."""
-        llm = MockLLMAdapter(responses=["Task completed successfully"])
-        return NativeWorkerNode(
-            agent=worker_agent,
-            llm=llm,
-            tools=[],
-            timeout=30
-        )
-
-    @pytest.mark.asyncio
-    async def test_execution(self, worker_node, sample_graph_state):
-        """Test worker execution."""
-        result = await worker_node.run(sample_graph_state)
-
-        assert "last_result" in result
-        assert "messages" in result
-        assert result["last_result"].from_agent == "test_worker"
-
-    @pytest.mark.asyncio
-    async def test_timeout_handling(self, worker_agent, sample_graph_state):
-        """Test timeout handling."""
-        # Create LLM that takes too long
-        slow_llm = MockLLMAdapter()
-
-        async def slow_invoke(*args, **kwargs):
-            import asyncio
-            await asyncio.sleep(10)  # Too slow
-            return MagicMock()
-
-        slow_llm.invoke = slow_invoke
-
-        worker = NativeWorkerNode(
-            agent=worker_agent,
-            llm=slow_llm,
-            tools=[],
-            timeout=0.1  # Very short timeout
-        )
-
-        result = await worker.run(sample_graph_state)
-
-        assert result["last_result"].is_error
-        assert "timed out" in result["last_result"].content.lower()
-
-    def test_name_property(self, worker_node):
-        """Test name property."""
-        assert worker_node.name == "test_worker"
-
-
 class TestGraphState:
     """Tests for GraphState structure."""
 
@@ -274,3 +159,40 @@ class TestGraphState:
         ]
         for key in required_keys:
             assert key in sample_graph_state
+
+    def test_state_has_correct_types(self):
+        """Test that state values have correct types."""
+        state = create_initial_state(
+            messages=[{"role": "user", "content": "Test"}],
+            roster=["worker1"]
+        )
+
+        assert isinstance(state["messages"], list)
+        assert isinstance(state["task"], str)
+        assert isinstance(state["roster"], list)
+        assert isinstance(state["iteration"], int)
+        assert isinstance(state["done"], bool)
+
+
+class TestResultMetadata:
+    """Tests for ResultMetadata model."""
+
+    def test_basic_metadata(self):
+        """Test basic metadata creation."""
+        metadata = ResultMetadata(
+            tokens_used=100,
+            duration_ms=500,
+            model_used="gpt-4"
+        )
+        assert metadata.tokens_used == 100
+        assert metadata.duration_ms == 500
+
+    def test_metadata_with_tools_invoked(self):
+        """Test metadata with tools invoked."""
+        metadata = ResultMetadata(
+            tokens_used=50,
+            duration_ms=200,
+            tools_invoked=["search", "calculate"]
+        )
+        assert len(metadata.tools_invoked) == 2
+        assert "search" in metadata.tools_invoked

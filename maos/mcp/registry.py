@@ -1,142 +1,205 @@
-"""Registry for MCP server connections."""
+"""Registry for MCP server connections using the official MCP SDK.
+
+This module uses the official Anthropic MCP SDK for server connections,
+providing proper protocol handling and session management.
+"""
 
 import asyncio
-from typing import Dict, List, Optional
+from contextlib import AsyncExitStack
+from typing import Any, Dict, List, Optional
 
 import structlog
 
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
 from maos.config.models import MCPServerConfig
-from maos.mcp.connection import MCPConnection, MCPToolDefinition
+from maos.mcp.official_client import MCPToolDefinition
 
 logger = structlog.get_logger()
 
 
+class MCPServerConnection:
+    """A managed connection to an MCP server."""
+
+    def __init__(
+        self,
+        name: str,
+        session: ClientSession,
+        tools: List[MCPToolDefinition]
+    ):
+        self.name = name
+        self._session = session
+        self._tools = tools
+
+    @property
+    def tools(self) -> List[MCPToolDefinition]:
+        """Get available tools."""
+        return self._tools
+
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+        """
+        Call a tool on this server.
+
+        Args:
+            tool_name: Name of the tool.
+            arguments: Tool arguments.
+
+        Returns:
+            Tool result.
+        """
+        result = await self._session.call_tool(tool_name, arguments)
+
+        # Extract content from result
+        if result.content:
+            for content in result.content:
+                if hasattr(content, 'text'):
+                    return content.text
+            return result.content
+
+        return None
+
+
 class MCPRegistry:
-    """Registry of MCP server connections."""
+    """Registry of MCP server connections using the official SDK.
+
+    This registry manages the lifecycle of MCP server connections,
+    using the official Anthropic MCP SDK for proper protocol handling.
+
+    Usage:
+        registry = MCPRegistry()
+        async with registry.connect_all(configs):
+            tools = registry.get_all_tools()
+            result = await registry.call_tool("server", "tool", {"arg": "value"})
+    """
 
     def __init__(self):
         """Initialize the MCP registry."""
-        self._connections: Dict[str, MCPConnection] = {}
+        self._connections: Dict[str, MCPServerConnection] = {}
+        self._exit_stack: Optional[AsyncExitStack] = None
+        self._configs: Dict[str, MCPServerConfig] = {}
 
-    async def connect_all(self, configs: Dict[str, MCPServerConfig]) -> None:
+    async def register(self, name: str, config: MCPServerConfig) -> None:
         """
-        Connect to all configured MCP servers.
-
-        Args:
-            configs: Dictionary of server configurations.
-        """
-        # Connect to servers in parallel
-        tasks = [
-            self._connect_server(name, config)
-            for name, config in configs.items()
-        ]
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Log any connection failures
-        for (name, _), result in zip(configs.items(), results):
-            if isinstance(result, Exception):
-                logger.warning(
-                    "failed_to_connect_mcp_server",
-                    server=name,
-                    error=str(result)
-                )
-
-    async def _connect_server(
-        self,
-        name: str,
-        config: MCPServerConfig
-    ) -> MCPConnection:
-        """Connect to a single server."""
-        logger.info("connecting_to_mcp_server", server=name, transport=config.transport)
-        connection = await MCPConnection.create(name, config)
-        self._connections[name] = connection
-        logger.info(
-            "connected_to_mcp_server",
-            server=name,
-            tools=len(connection.tools)
-        )
-        return connection
-
-    async def connect(
-        self,
-        name: str,
-        config: MCPServerConfig
-    ) -> MCPConnection:
-        """
-        Connect to a single MCP server.
+        Register a server configuration for later connection.
 
         Args:
             name: Server name.
             config: Server configuration.
-
-        Returns:
-            The connection.
         """
-        return await self._connect_server(name, config)
+        self._configs[name] = config
 
-    def get_connection(self, name: str) -> Optional[MCPConnection]:
-        """
-        Get a connection by server name.
+    async def connect_all(self) -> None:
+        """Connect to all registered MCP servers."""
+        if self._exit_stack is not None:
+            await self.disconnect_all()
 
-        Args:
-            name: Server name.
+        self._exit_stack = AsyncExitStack()
+        await self._exit_stack.__aenter__()
 
-        Returns:
-            The connection if found.
-        """
+        for name, config in self._configs.items():
+            try:
+                await self._connect_server(name, config)
+            except Exception as e:
+                logger.warning(
+                    "failed_to_connect_mcp_server",
+                    server=name,
+                    error=str(e)
+                )
+
+    async def _connect_server(self, name: str, config: MCPServerConfig) -> None:
+        """Connect to a single MCP server."""
+        if config.transport != "stdio":
+            raise NotImplementedError(
+                f"Transport '{config.transport}' not supported. "
+                f"Only 'stdio' is currently supported with the official MCP SDK."
+            )
+
+        if not config.command:
+            raise ValueError(f"MCP server '{name}' requires 'command' for stdio transport")
+
+        logger.info("connecting_to_mcp_server", server=name)
+
+        # Create server parameters
+        server_params = StdioServerParameters(
+            command=config.command[0],
+            args=config.command[1:] if len(config.command) > 1 else [],
+            env=config.env
+        )
+
+        # Enter the stdio_client context
+        read, write = await self._exit_stack.enter_async_context(
+            stdio_client(server_params)
+        )
+
+        # Create and initialize session
+        session = await self._exit_stack.enter_async_context(
+            ClientSession(read, write)
+        )
+        await session.initialize()
+
+        # List available tools
+        tools_result = await session.list_tools()
+        tools = [
+            MCPToolDefinition(
+                name=t.name,
+                description=t.description or "",
+                input_schema=t.inputSchema or {},
+                server_name=name
+            )
+            for t in tools_result.tools
+        ]
+
+        # Store connection
+        self._connections[name] = MCPServerConnection(name, session, tools)
+
+        logger.info(
+            "connected_to_mcp_server",
+            server=name,
+            tools_count=len(tools)
+        )
+
+    def get_connection(self, name: str) -> Optional[MCPServerConnection]:
+        """Get a connection by server name."""
         return self._connections.get(name)
 
-    def get_connection_or_raise(self, name: str) -> MCPConnection:
-        """
-        Get a connection by name, raising if not found.
-
-        Args:
-            name: Server name.
-
-        Returns:
-            The connection.
-
-        Raises:
-            KeyError: If connection not found.
-        """
-        connection = self._connections.get(name)
-        if connection is None:
-            raise KeyError(f"MCP connection not found: {name}")
-        return connection
-
-    async def get_tools(self, server_name: str) -> List[MCPToolDefinition]:
-        """
-        Get tool definitions from a server.
-
-        Args:
-            server_name: Server name.
-
-        Returns:
-            List of tool definitions.
-        """
-        connection = self.get_connection_or_raise(server_name)
-        return connection.tools
-
     def get_all_tools(self) -> List[MCPToolDefinition]:
-        """
-        Get all tools from all connected servers.
-
-        Returns:
-            List of all tool definitions.
-        """
+        """Get all tools from all connected servers."""
         tools = []
         for connection in self._connections.values():
             tools.extend(connection.tools)
         return tools
 
+    async def call_tool(
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: Dict[str, Any]
+    ) -> Any:
+        """
+        Call a tool on a specific server.
+
+        Args:
+            server_name: Name of the server.
+            tool_name: Name of the tool.
+            arguments: Tool arguments.
+
+        Returns:
+            Tool result.
+
+        Raises:
+            KeyError: If server not found.
+        """
+        connection = self._connections.get(server_name)
+        if not connection:
+            raise KeyError(f"MCP server not connected: {server_name}")
+        return await connection.call_tool(tool_name, arguments)
+
     async def disconnect_all(self) -> None:
         """Disconnect from all servers."""
-        tasks = [
-            connection.disconnect()
-            for connection in self._connections.values()
-        ]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        if self._exit_stack:
+            await self._exit_stack.aclose()
+            self._exit_stack = None
         self._connections.clear()
         logger.info("disconnected_all_mcp_servers")
 

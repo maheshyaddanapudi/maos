@@ -2,69 +2,6 @@
 
 from typing import Any, Dict, List, Optional
 
-from maos.mcp.transports.base import MCPTransport
-
-
-class MockMCPTransport(MCPTransport):
-    """Mock MCP transport for testing."""
-
-    def __init__(
-        self,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_results: Optional[Dict[str, Any]] = None
-    ):
-        """
-        Initialize the mock transport.
-
-        Args:
-            tools: List of tool definitions to return.
-            tool_results: Dict mapping tool names to results.
-        """
-        self._tools = tools or []
-        self._tool_results = tool_results or {}
-        self._connected = False
-        self._call_history: List[Dict[str, Any]] = []
-
-    async def connect(self) -> None:
-        """Simulate connection."""
-        self._connected = True
-
-    async def disconnect(self) -> None:
-        """Simulate disconnection."""
-        self._connected = False
-
-    @property
-    def is_connected(self) -> bool:
-        """Check if connected."""
-        return self._connected
-
-    async def send_request(self, method: str, params: Dict[str, Any]) -> Any:
-        """Handle mock requests."""
-        self._call_history.append({
-            "method": method,
-            "params": params
-        })
-
-        if method == "tools/list":
-            return {"tools": self._tools}
-
-        elif method == "tools/call":
-            tool_name = params.get("name", "")
-            if tool_name in self._tool_results:
-                return {"content": [{"text": str(self._tool_results[tool_name])}]}
-            return {"content": [{"text": "Mock tool result"}]}
-
-        return {}
-
-    @property
-    def call_history(self) -> List[Dict[str, Any]]:
-        """Get call history."""
-        return self._call_history
-
-    def reset(self) -> None:
-        """Reset mock state."""
-        self._call_history = []
-
 
 class MockMCPConnection:
     """Mock MCP connection for testing."""
@@ -98,7 +35,7 @@ class MockMCPConnection:
         self._invoke_history: List[Dict[str, Any]] = []
 
     @property
-    def server_name(self) -> str:
+    def name(self) -> str:
         """Get server name."""
         return self._server_name
 
@@ -115,17 +52,17 @@ class MockMCPConnection:
         """Disconnect from mock server."""
         self._connected = False
 
-    async def list_tools(self) -> List[Dict[str, Any]]:
+    def get_tools(self) -> List[Dict[str, Any]]:
         """List available tools."""
         return self._tools
 
-    async def invoke_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
-        """Invoke a tool."""
+    async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
+        """Call a tool."""
         self._invoke_history.append({
             "name": name,
             "arguments": arguments
         })
-        return {"result": f"Mock result from {name}"}
+        return f"Mock result from {name}"
 
     @property
     def invoke_history(self) -> List[Dict[str, Any]]:
@@ -149,20 +86,43 @@ class MockMCPRegistry:
         self._connections[name] = MockMCPConnection(server_name=name)
         await self._connections[name].connect()
 
-    def get(self, name: str) -> Optional[MockMCPConnection]:
+    def get_connection(self, name: str) -> Optional[MockMCPConnection]:
         """Get a connection by name."""
         return self._connections.get(name)
 
-    def list_servers(self) -> List[str]:
+    def get_all_tools(self) -> List[Dict[str, Any]]:
+        """Get all tools from all servers."""
+        tools = []
+        for conn in self._connections.values():
+            tools.extend(conn.get_tools())
+        return tools
+
+    async def call_tool(
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: Dict[str, Any]
+    ) -> Any:
+        """Call a tool on a server."""
+        conn = self._connections.get(server_name)
+        if not conn:
+            raise KeyError(f"Server not found: {server_name}")
+        return await conn.call_tool(tool_name, arguments)
+
+    def list(self) -> List[str]:
         """List all server names."""
         return list(self._connections.keys())
-
-    def is_connected(self, name: str) -> bool:
-        """Check if a server is connected."""
-        conn = self._connections.get(name)
-        return conn.is_connected if conn else False
 
     async def disconnect_all(self) -> None:
         """Disconnect all servers."""
         for conn in self._connections.values():
             await conn.disconnect()
+        self._connections.clear()
+
+    def __contains__(self, name: str) -> bool:
+        """Check if a server is registered."""
+        return name in self._connections
+
+    def __len__(self) -> int:
+        """Get number of registered servers."""
+        return len(self._connections)

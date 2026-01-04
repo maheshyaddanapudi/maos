@@ -125,13 +125,12 @@ async def initialize_system(config_path: str, checkpointer=None):
     for discovered in discovered_agents:
         agent_registry.register_external(discovered)
 
-    # Build the graph
+    # Build the graph using LangGraph native factory
     graph_factory = GraphFactory(
+        config=config,
         agent_registry=agent_registry,
-        llm_registry=llm_registry,
+        llm_factory=llm_factory,
         tool_registry=tool_registry,
-        graph_config=config.graph,
-        a2a_client=a2a_client
     )
 
     # Use provided checkpointer or create memory saver

@@ -1,37 +1,30 @@
-"""MCP integration module for MAOS.
+"""MCP integration using the official Anthropic MCP SDK.
 
-This module provides two approaches for MCP server connections:
-
-1. Official MCP SDK (Recommended):
-   - OfficialMCPConnection: Uses the official Anthropic MCP SDK
-   - MCPConnectionManager: Manages multiple official connections
-
-2. Custom Transports (Legacy):
-   - MCPRegistry, MCPConnection: Custom transport implementations
-
-The official SDK approach is preferred as it handles:
+This module provides MCP server connections using the official SDK,
+which handles:
 - Protocol negotiation
 - JSON-RPC framing
-- Session lifecycle
+- Session lifecycle management
+- Tool invocation
+
+Usage:
+    from maos.mcp import MCPRegistry, MCPToolDefinition
+
+    registry = MCPRegistry()
+    await registry.register("server", config)
+    await registry.connect_all()
+
+    tools = registry.get_all_tools()
+    result = await registry.call_tool("server", "tool_name", {"arg": "value"})
+
+    await registry.disconnect_all()
 """
 
-# Official MCP SDK client (recommended)
-from maos.mcp.official_client import (
-    OfficialMCPConnection,
-    MCPConnectionManager,
-    MCPToolDefinition,
-)
-
-# Custom implementation (legacy)
-from maos.mcp.registry import MCPRegistry
-from maos.mcp.connection import MCPConnection
+from maos.mcp.registry import MCPRegistry, MCPServerConnection
+from maos.mcp.official_client import MCPToolDefinition
 
 __all__ = [
-    # Official SDK (recommended)
-    "OfficialMCPConnection",
-    "MCPConnectionManager",
-    "MCPToolDefinition",
-    # Legacy
     "MCPRegistry",
-    "MCPConnection",
+    "MCPServerConnection",
+    "MCPToolDefinition",
 ]

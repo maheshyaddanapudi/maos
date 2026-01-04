@@ -244,10 +244,21 @@ class GraphFactory:
 
             for msg in state.get("messages", []):
                 if isinstance(msg, dict):
+                    # Handle dict-format messages
                     if msg.get("role") == "user":
                         messages.append(HumanMessage(content=msg.get("content", "")))
                     elif msg.get("role") == "assistant":
                         messages.append(AIMessage(content=msg.get("content", "")))
+                elif isinstance(msg, HumanMessage):
+                    messages.append(msg)
+                elif isinstance(msg, AIMessage):
+                    messages.append(msg)
+                elif hasattr(msg, 'type') and hasattr(msg, 'content'):
+                    # Handle any LangChain-style message
+                    if msg.type == "human":
+                        messages.append(HumanMessage(content=msg.content))
+                    elif msg.type == "ai":
+                        messages.append(AIMessage(content=msg.content))
 
             # Add last result context
             last_result = state.get("last_result")

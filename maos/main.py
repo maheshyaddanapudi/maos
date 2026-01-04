@@ -67,7 +67,7 @@ async def initialize_system(config_path: str, checkpointer=None):
     llm_factory = LLMFactory()
     for name, llm_config in config.llms.items():
         adapter = llm_factory.create(llm_config)
-        llm_registry.register(name, adapter)
+        llm_registry.register_adapter(name, adapter)
     logger.info("llm_registry_initialized", count=len(config.llms))
 
     # Initialize MCP registry and connect to servers
@@ -76,24 +76,19 @@ async def initialize_system(config_path: str, checkpointer=None):
         await mcp_registry.register(name, server_config)
     logger.info("mcp_registry_initialized", count=len(config.mcp_servers))
 
-    # Initialize Tool registry
+    # Initialize Tool registry and materialize tools from config
     tool_registry = ToolRegistry(mcp_registry=mcp_registry)
-    for tool_id, tool_config in config.tools.items():
-        tool_registry.register_from_config(tool_id, tool_config)
-    # Also materialize tools from MCP servers
-    await tool_registry.materialize_from_mcp()
-    logger.info("tool_registry_initialized", count=len(tool_registry.list()))
+    await tool_registry.materialize(config.tools)
+    logger.info("tool_registry_initialized", count=len(tool_registry))
 
     # Initialize Skill and Skillset registries
     skill_registry = SkillRegistry(tool_registry=tool_registry)
-    for name, skill_config in config.skills.items():
-        skill_registry.register_from_config(name, skill_config)
-    logger.info("skill_registry_initialized", count=len(skill_registry.list()))
+    skill_registry.build(config.skills)
+    logger.info("skill_registry_initialized", count=len(skill_registry))
 
     skillset_registry = SkillsetRegistry(skill_registry=skill_registry, tool_registry=tool_registry)
-    for name, skillset_config in config.skillsets.items():
-        skillset_registry.register_from_config(name, skillset_config)
-    logger.info("skillset_registry_initialized", count=len(skillset_registry.list()))
+    skillset_registry.build(config.skillsets)
+    logger.info("skillset_registry_initialized", count=len(skillset_registry))
 
     # Initialize A2A components
     a2a_client = A2AClient()

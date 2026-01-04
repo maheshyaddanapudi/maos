@@ -1,0 +1,137 @@
+# Config with SPECIALIZED agents only - NO "full access" agent
+# Forces supervisor to route to multiple agents for complex tasks
+
+llms:
+  default:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    temperature: 0.3
+
+mcp_servers:
+  test_tools:
+    transport: stdio
+    command:
+      - python3
+      - -m
+      - tests.mcp_servers.test_tools_server
+
+# Tools materialized from MCP
+tools:
+  current_time:
+    server: test_tools
+    tool_name: get_current_time
+    description: Get the current date and time
+
+  calculator:
+    server: test_tools
+    tool_name: calculate
+    description: Perform mathematical calculations
+
+  file_reader:
+    server: test_tools
+    tool_name: read_test_file
+    description: Read test file contents
+
+  echo_tool:
+    server: test_tools
+    tool_name: echo
+    description: Echo messages for testing
+
+# Skills - ISOLATED groups, no overlap
+skills:
+  time_skill:
+    description: Time operations only
+    tools:
+      - current_time
+
+  math_skill:
+    description: Math operations only
+    tools:
+      - calculator
+
+  file_skill:
+    description: File operations only
+    tools:
+      - file_reader
+
+  echo_skill:
+    description: Echo operations only
+    tools:
+      - echo_tool
+
+# Skillsets - DISTINCT capabilities per agent
+skillsets:
+  time_only:
+    description: Only time operations
+    skills:
+      - time_skill
+
+  math_only:
+    description: Only math operations
+    skills:
+      - math_skill
+
+  file_only:
+    description: Only file operations
+    skills:
+      - file_skill
+
+  echo_only:
+    description: Only echo operations
+    skills:
+      - echo_skill
+
+# Agents with NON-OVERLAPPING capabilities
+agents:
+  supervisor:
+    kind: supervisor
+    llm: default
+    system_prompt: |
+      You are a supervisor that routes tasks to specialized workers.
+
+      IMPORTANT: Each worker has DIFFERENT capabilities:
+      - timekeeper: Can ONLY get time (no math, no files)
+      - mathematician: Can ONLY do math (no time, no files)
+      - librarian: Can ONLY read files (no time, no math)
+      - echoer: Can ONLY echo messages
+
+      If a task requires multiple capabilities, you MUST delegate to
+      multiple workers sequentially. No single worker can do everything.
+
+      After each worker completes, decide if more work is needed.
+
+  timekeeper:
+    kind: native_worker
+    llm: default
+    skillset: time_only
+    system_prompt: |
+      You are the timekeeper. You can ONLY get the current time.
+      You cannot do math or read files.
+    description: Gets current time only
+
+  mathematician:
+    kind: native_worker
+    llm: default
+    skillset: math_only
+    system_prompt: |
+      You are the mathematician. You can ONLY do calculations.
+      You cannot get time or read files.
+    description: Does math calculations only
+
+  librarian:
+    kind: native_worker
+    llm: default
+    skillset: file_only
+    system_prompt: |
+      You are the librarian. You can ONLY read files.
+      You cannot do math or get time.
+    description: Reads files only
+
+  echoer:
+    kind: native_worker
+    llm: default
+    skillset: echo_only
+    system_prompt: |
+      You are the echoer. You can ONLY echo messages back.
+      You cannot do math, get time, or read files.
+    description: Echoes messages only

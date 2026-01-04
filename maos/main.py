@@ -90,7 +90,7 @@ async def initialize_system(config_path: str, checkpointer=None):
         skill_registry.register_from_config(name, skill_config)
     logger.info("skill_registry_initialized", count=len(skill_registry.list()))
 
-    skillset_registry = SkillsetRegistry(skill_registry=skill_registry)
+    skillset_registry = SkillsetRegistry(skill_registry=skill_registry, tool_registry=tool_registry)
     for name, skillset_config in config.skillsets.items():
         skillset_registry.register_from_config(name, skillset_config)
     logger.info("skillset_registry_initialized", count=len(skillset_registry.list()))
@@ -108,22 +108,22 @@ async def initialize_system(config_path: str, checkpointer=None):
     else:
         discovered_agents = []
 
-    # Initialize Agent registry
-    agent_registry = AgentRegistry()
+    # Initialize Agent factory and registry
     agent_factory = AgentFactory(
         llm_registry=llm_registry,
+        skillset_registry=skillset_registry,
+        skill_registry=skill_registry,
         tool_registry=tool_registry,
-        skillset_registry=skillset_registry
     )
+    agent_registry = AgentRegistry(factory=agent_factory)
 
-    for name, agent_config in config.agents.items():
-        agent = agent_factory.create(name, agent_config)
-        agent_registry.register(agent)
+    # Build all agents from config (handles supervisor/worker ordering)
+    agent_registry.build(config)
     logger.info("agent_registry_initialized", count=len(config.agents))
 
     # Register discovered A2A agents
     for discovered in discovered_agents:
-        agent_registry.register_external(discovered)
+        agent_registry.add_external(discovered)
 
     # Build the graph using LangGraph native factory
     graph_factory = GraphFactory(

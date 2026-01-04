@@ -89,6 +89,33 @@ class AgentFactory:
 
         return worker
 
+    def create(self, name: str, config: AgentConfig, roster: Optional[List[str]] = None) -> Agent:
+        """
+        Create an agent based on its kind.
+
+        Args:
+            name: Agent name.
+            config: Agent configuration.
+            roster: List of worker names (required for supervisor).
+
+        Returns:
+            Created agent.
+
+        Raises:
+            ValueError: If agent kind is invalid or supervisor missing roster.
+        """
+        if config.kind == AgentKind.NATIVE_WORKER:
+            return self.create_worker(name, config)
+        elif config.kind == AgentKind.SUPERVISOR:
+            if roster is None:
+                roster = []  # Will be populated later
+            return self.create_supervisor(name, config, roster)
+        elif config.kind == AgentKind.EXTERNAL:
+            # External agents are created via A2A discovery, not factory
+            raise ValueError("External agents should be created via A2A discovery")
+        else:
+            raise ValueError(f"Unknown agent kind: {config.kind}")
+
     def create_supervisor(
         self,
         name: str,

@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
     # Core orchestration
     "langgraph>=0.2.0",
+    "langgraph-supervisor>=0.0.30",
 
     # API framework
     "fastapi>=0.100.0",

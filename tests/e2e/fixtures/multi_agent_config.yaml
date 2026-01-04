@@ -11,17 +11,11 @@ agents:
     system_prompt: |
       You are a supervisor that routes tasks to specialized workers.
 
-      Available workers:
-      - math_expert: For mathematical calculations and problems
-      - writer: For creative writing and text generation
+      Analyze user requests and delegate to the most appropriate worker.
+      Use send_message if you need clarification from the user.
 
-      IMPORTANT INSTRUCTIONS:
-      1. Analyze the user's request carefully
-      2. Route to the appropriate worker using route_to_<worker_name>
-      3. After receiving the worker's result, use finish_task to complete
-      4. If you need clarification from the user, use send_message
-
-      Always route math questions to math_expert and writing tasks to writer.
+      After a worker completes their task, decide if you need another worker
+      or if the task is complete.
 
   math_expert:
     kind: native_worker
@@ -29,7 +23,7 @@ agents:
     system_prompt: |
       You are a math expert. Solve mathematical problems step by step.
       Be precise and show your work. Give the final answer clearly.
-    description: Solves mathematical problems
+    description: Solves mathematical problems and calculations
 
   writer:
     kind: native_worker

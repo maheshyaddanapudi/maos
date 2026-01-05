@@ -480,3 +480,91 @@ class TestExternalA2AAgent:
             title_parts = result["result"]["task"]["result"]["parts"]
             title = title_parts[0]["text"] if title_parts else ""
             assert len(title) > 0, "Expected a generated title"
+
+    @pytest.mark.asyncio
+    async def test_title_generation_after_conversation(self, maos_system):
+        """Test title generation flow like OpenWebUI would use.
+
+        This simulates the real UI flow:
+        1. User sends initial message
+        2. Assistant responds (via supervisor + workers)
+        3. UI asks title_generator for a title based on conversation
+        4. Title generator returns a concise, usable title
+        """
+        graph, context = maos_system
+        from maos.graph.state import create_initial_state
+        from maos.agents.executor import AgentInput
+
+        roster = context["agent_registry"].get_roster()
+        external_servers = context.get("external_servers", [])
+        title_gen = next((s for s in external_servers if s.name == "title_generator"), None)
+        assert title_gen is not None, "title_generator should be running"
+
+        # Step 1: User sends initial message
+        user_message = "Can you help me calculate the compound interest on a $10,000 investment at 5% annual rate for 3 years?"
+
+        messages = [{"role": "user", "content": user_message}]
+        state = create_initial_state(messages=messages, roster=roster, thread_id="test-title-flow")
+        result = await graph.ainvoke(state, {"configurable": {"thread_id": "test-title-flow"}})
+
+        # Step 2: Extract assistant's response
+        assistant_response = ""
+        for msg in result.get("messages", []):
+            if hasattr(msg, "type") and msg.type == "ai" and hasattr(msg, "content") and msg.content:
+                content = str(msg.content).strip()
+                if content:
+                    assistant_response = content
+                    break
+
+        assert len(assistant_response) > 0, "Expected assistant to respond"
+
+        # Step 3: UI asks title_generator for a title
+        # This is the conversation context that would be passed to title generator
+        conversation_context = f"User: {user_message}\n\nAssistant: {assistant_response[:500]}"
+
+        title_result = await title_gen.execute(AgentInput(
+            task=conversation_context,
+            context={"thread_id": "test-title-flow"}
+        ))
+
+        # Step 4: Verify we get a usable title
+        assert title_result.success, f"Title generation failed: {title_result.error}"
+        title = title_result.content.strip()
+
+        print(f"\n--- Title Generation Flow ---")
+        print(f"User: {user_message[:100]}...")
+        print(f"Assistant: {assistant_response[:100]}...")
+        print(f"Generated Title: {title}")
+
+        # Title should be:
+        # - Not empty
+        # - Concise (not the whole conversation)
+        # - Not a question (it's a title, not a follow-up)
+        # - Related to the topic (compound interest, investment, etc.)
+        assert len(title) > 0, "Title should not be empty"
+        assert len(title) < 100, f"Title should be concise, got {len(title)} chars: {title}"
+        assert not title.endswith("?"), f"Title should not be a question: {title}"
+
+        # Check it's related to the topic (at least one keyword should appear)
+        title_lower = title.lower()
+        topic_keywords = ["interest", "compound", "investment", "calculate", "finance", "money", "rate", "return"]
+        has_topic_keyword = any(kw in title_lower for kw in topic_keywords)
+        assert has_topic_keyword, f"Title should be related to topic, got: {title}"
+
+    @pytest.mark.asyncio
+    async def test_title_generation_empty_returns_default(self, maos_system):
+        """Test that empty/invalid input returns a sensible default title."""
+        graph, context = maos_system
+        from maos.agents.executor import AgentInput
+
+        external_servers = context.get("external_servers", [])
+        title_gen = next((s for s in external_servers if s.name == "title_generator"), None)
+        assert title_gen is not None
+
+        # Empty input should return default
+        result = await title_gen.execute(AgentInput(task=""))
+
+        assert result.success, "Should succeed even with empty input"
+        assert len(result.content) > 0, "Should return some title"
+        # Default is "New Conversation" in our implementation
+        assert result.content == "New Conversation", f"Expected default title, got: {result.content}"

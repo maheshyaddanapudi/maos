@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import structlog
 
 from maos.config.models import Config, ServingConfig
-from maos.api.routes import health, agents, chat, openai_compat
+from maos.api.routes import health, agents, chat, openai_compat, tasks
 
 logger = structlog.get_logger()
 
@@ -99,12 +99,14 @@ def create_app(
     app.include_router(agents.router)
     app.include_router(chat.router)
     app.include_router(openai_compat.router)
+    app.include_router(tasks.router)
 
     # Override dependencies
     app.dependency_overrides[health.get_app_context] = override_context
     app.dependency_overrides[agents.get_app_context] = override_context
     app.dependency_overrides[chat.get_app_context] = override_context
     app.dependency_overrides[openai_compat.get_app_context] = override_context
+    app.dependency_overrides[tasks.get_app_context] = override_context
 
     # Store config in context
     if config:

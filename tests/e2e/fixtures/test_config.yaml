@@ -169,3 +169,23 @@ agents:
     system_prompt: |
       You are the librarian. Use your tools to read and analyze files.
     description: Handles file reading only
+
+  # === EXTERNAL AGENTS (A2A protocol) ===
+  # External agents run as separate A2A-compliant servers.
+  # They can be:
+  # - Local (managed by MAOS, started on app startup)
+  # - Remote (already running elsewhere, just discovered via A2A)
+  #
+  # This demonstrates the config-driven approach where the same config
+  # structure works for both local and remote external agents.
+  title_generator:
+    kind: external
+    llm: default
+    system_prompt: |
+      You generate concise, descriptive titles for conversations.
+      Rules: Max 5-8 words, be specific, use title case, output only the title.
+    description: Generates conversation titles
+    server:
+      host: "127.0.0.1"  # Same host for local testing
+      # port: null  # Dynamic port - MAOS assigns a free port at startup
+      implementation: title_generator  # Built-in implementation

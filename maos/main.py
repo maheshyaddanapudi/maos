@@ -32,6 +32,75 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
+async def _start_external_agent(
+    name: str,
+    agent_config,
+    llm_registry,
+    llm_factory,
+):
+    """
+    Start an external A2A agent server.
+
+    Args:
+        name: Agent name.
+        agent_config: Agent configuration.
+        llm_registry: LLM registry for getting adapters.
+        llm_factory: LLM factory for creating adapters.
+
+    Returns:
+        The running ExternalAgentServer instance, or None if failed.
+    """
+    from maos.a2a.agents import TitleGeneratorAgent
+    from maos.a2a.agents.base import ExternalAgentServer
+
+    server_config = agent_config.server
+    if server_config is None:
+        # Use defaults
+        host = "127.0.0.1"
+        port = None  # Random
+        implementation = "title_generator"
+    else:
+        host = server_config.host
+        port = server_config.port
+        implementation = server_config.implementation
+
+    # Get LLM adapter for the external agent
+    llm_adapter = llm_registry.get_or_default(agent_config.llm)
+
+    # Create the appropriate server implementation
+    if implementation == "title_generator":
+        server = TitleGeneratorAgent(
+            name=name,
+            description=agent_config.description or "Generates titles for conversations",
+            host=host,
+            port=port,
+            llm_adapter=llm_adapter,
+            system_prompt=agent_config.system_prompt if agent_config.system_prompt else None,
+        )
+    else:
+        # Could support custom implementations via module path
+        logger.warning(
+            "unknown_external_agent_implementation",
+            name=name,
+            implementation=implementation
+        )
+        return None
+
+    # Start the server in background
+    try:
+        await server.start_background()
+        logger.info(
+            "external_agent_started",
+            name=name,
+            endpoint=server.endpoint,
+            port=server.port
+        )
+        return server
+    except Exception as e:
+        logger.error("failed_to_start_external_agent", name=name, error=str(e))
+        return None
+
+
 async def initialize_system(config_path: str, checkpointer=None):
     """
     Initialize all MAOS components from configuration.
@@ -120,7 +189,23 @@ async def initialize_system(config_path: str, checkpointer=None):
     agent_registry.build(config)
     logger.info("agent_registry_initialized", count=len(config.agents))
 
-    # Register discovered A2A agents
+    # Start managed external agents (defined in config with kind: external)
+    external_servers = []
+    for name, agent_config in agent_registry.get_external_configs().items():
+        server = await _start_external_agent(
+            name=name,
+            agent_config=agent_config,
+            llm_registry=llm_registry,
+            llm_factory=llm_factory,
+        )
+        if server:
+            external_servers.append(server)
+            agent_registry.register_managed_external(name, agent_config, server)
+
+    if external_servers:
+        logger.info("started_external_agents", count=len(external_servers))
+
+    # Register discovered A2A agents (from external discovery)
     for discovered in discovered_agents:
         agent_registry.add_external(discovered)
 
@@ -150,7 +235,8 @@ async def initialize_system(config_path: str, checkpointer=None):
         "skillset_registry": skillset_registry,
         "agent_registry": agent_registry,
         "graph": compiled_graph,
-        "checkpointer": checkpointer
+        "checkpointer": checkpointer,
+        "external_servers": external_servers,
     }
 
     return compiled_graph, context
@@ -164,6 +250,14 @@ async def shutdown_system(context: dict):
         context: Application context dictionary.
     """
     logger.info("shutting_down_maos")
+
+    # Stop external agent servers
+    external_servers = context.get("external_servers", [])
+    for server in external_servers:
+        try:
+            await server.stop()
+        except Exception as e:
+            logger.warning("failed_to_stop_external_agent", error=str(e))
 
     # Disconnect MCP servers
     mcp_registry = context.get("mcp_registry")

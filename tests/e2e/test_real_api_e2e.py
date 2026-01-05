@@ -243,11 +243,15 @@ class TestAgentRoster:
         roster = context["agent_registry"].get_roster()
         print(f"\nRoster: {roster}")
 
-        # Unified config has 6 workers: analyst, researcher, assistant, timekeeper, mathematician, librarian
-        expected_workers = ["analyst", "researcher", "assistant", "timekeeper", "mathematician", "librarian"]
-        for worker in expected_workers:
-            assert worker in roster, f"{worker} should be in roster"
-        assert len(roster) == 6, f"Expected 6 workers, got {len(roster)}: {roster}"
+        # Unified config has 6 native workers + 1 external agent
+        expected_agents = [
+            "analyst", "researcher", "assistant",
+            "timekeeper", "mathematician", "librarian",
+            "title_generator"  # External A2A agent
+        ]
+        for agent in expected_agents:
+            assert agent in roster, f"{agent} should be in roster"
+        assert len(roster) == 7, f"Expected 7 agents, got {len(roster)}: {roster}"
 
     @pytest.mark.asyncio
     async def test_llm_registry_initialized(self, maos_system):

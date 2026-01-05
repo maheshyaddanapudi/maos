@@ -360,3 +360,123 @@ class TestErrorHandling:
         assert len(response) > 0, "Should have some response"
         # Should indicate file not found somehow
         assert any(x in response.lower() for x in ["not found", "doesn't exist", "nonexistent", "error", "unable"])
+
+
+# ============================================================================
+# EXTERNAL A2A AGENT TESTS
+# ============================================================================
+
+class TestExternalA2AAgent:
+    """Tests for external A2A agents (title_generator)."""
+
+    @pytest.mark.asyncio
+    async def test_external_agent_started(self, maos_system):
+        """Test that external agent server starts with the app."""
+        graph, context = maos_system
+
+        # Check external servers were started
+        external_servers = context.get("external_servers", [])
+        assert len(external_servers) >= 1, "Expected at least one external server"
+
+        # Find the title_generator
+        title_gen = None
+        for server in external_servers:
+            if server.name == "title_generator":
+                title_gen = server
+                break
+
+        assert title_gen is not None, "title_generator should be running"
+        assert title_gen.port > 0, "Should have a valid port"
+        assert "127.0.0.1" in title_gen.endpoint, "Should be on localhost"
+
+    @pytest.mark.asyncio
+    async def test_external_agent_in_roster(self, maos_system):
+        """Test that external agent appears in supervisor's roster."""
+        graph, context = maos_system
+
+        roster = context["agent_registry"].get_roster()
+        assert "title_generator" in roster, f"title_generator should be in roster: {roster}"
+
+    @pytest.mark.asyncio
+    async def test_external_agent_direct_call(self, maos_system):
+        """Test calling the external agent directly via its executor interface."""
+        graph, context = maos_system
+
+        external_servers = context.get("external_servers", [])
+        title_gen = next((s for s in external_servers if s.name == "title_generator"), None)
+        assert title_gen is not None, "title_generator should be running"
+
+        # Call the agent directly using its executor interface
+        from maos.agents.executor import AgentInput
+        result = await title_gen.execute(AgentInput(
+            task="How do I sort a list in Python using the built-in sort function?"
+        ))
+
+        assert result.success, f"Expected success, got error: {result.error}"
+        assert len(result.content) > 0, "Expected a title response"
+        assert len(result.content) < 100, "Title should be concise"
+
+    @pytest.mark.asyncio
+    async def test_external_agent_a2a_endpoint(self, maos_system):
+        """Test the external agent's A2A endpoint directly."""
+        import httpx
+
+        graph, context = maos_system
+
+        external_servers = context.get("external_servers", [])
+        title_gen = next((s for s in external_servers if s.name == "title_generator"), None)
+        assert title_gen is not None
+
+        # Test the agent card endpoint
+        async with httpx.AsyncClient() as client:
+            response = await client.get(title_gen.agent_card_url)
+            assert response.status_code == 200
+
+            card = response.json()
+            assert card["name"] == "title_generator"
+            assert "protocolVersion" in card
+            assert "supportedInterfaces" in card
+
+    @pytest.mark.asyncio
+    async def test_external_agent_via_a2a_protocol(self, maos_system):
+        """Test sending a message to external agent via A2A protocol."""
+        import httpx
+
+        graph, context = maos_system
+
+        external_servers = context.get("external_servers", [])
+        title_gen = next((s for s in external_servers if s.name == "title_generator"), None)
+        assert title_gen is not None
+
+        # Send A2A message
+        request = {
+            "jsonrpc": "2.0",
+            "method": "message/send",
+            "id": "test-1",
+            "params": {
+                "message": {
+                    "role": "user",
+                    "parts": [
+                        {"type": "text", "text": "Help me debug a React component that's not rendering"}
+                    ]
+                }
+            }
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                title_gen.endpoint,
+                json=request,
+                headers={"Content-Type": "application/json"}
+            )
+            assert response.status_code == 200
+
+            result = response.json()
+            assert result.get("jsonrpc") == "2.0"
+            assert "result" in result
+            assert result["result"]["task"]["status"] == "COMPLETED"
+
+            # Get the generated title
+            title_parts = result["result"]["task"]["result"]["parts"]
+            title = title_parts[0]["text"] if title_parts else ""
+            assert len(title) > 0, "Expected a generated title"

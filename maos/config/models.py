@@ -60,6 +60,7 @@ class AgentKind(str, Enum):
     """Types of agents."""
     SUPERVISOR = "supervisor"
     NATIVE_WORKER = "native_worker"
+    EXTERNAL = "external"
 
 
 class RetryPolicy(BaseModel):
@@ -69,8 +70,15 @@ class RetryPolicy(BaseModel):
     exponential_backoff: bool = False
 
 
+class ExternalAgentServerConfig(BaseModel):
+    """Configuration for hosting an external agent as A2A server."""
+    host: str = "127.0.0.1"
+    port: Optional[int] = Field(default=None, ge=1, le=65535)  # None = random port
+    implementation: str = "default"  # Built-in implementations or custom module path
+
+
 class AgentConfig(BaseModel):
-    """Configuration for a native agent (supervisor or worker)."""
+    """Configuration for an agent (supervisor, native worker, or external)."""
     kind: AgentKind
     framework: Literal["langchain", "openai", "google", "smolagents", "llamaindex", "agno", "tinyagent"] = "langchain"
     llm: str = "default"
@@ -80,6 +88,8 @@ class AgentConfig(BaseModel):
     description: Optional[str] = None
     timeout_seconds: int = Field(default=60, ge=1)
     retry_policy: Optional[RetryPolicy] = None
+    # External agent specific config (only used when kind=external)
+    server: Optional[ExternalAgentServerConfig] = None
 
 
 class NativeWorkersConfig(BaseModel):

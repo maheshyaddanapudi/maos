@@ -1,6 +1,6 @@
 """Registry for agents."""
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 
@@ -11,8 +11,30 @@ from maos.agents.factory import AgentFactory
 logger = structlog.get_logger()
 
 
+class ManagedExternalAgent:
+    """An external agent managed by the registry (started with the app)."""
+
+    def __init__(
+        self,
+        name: str,
+        config: AgentConfig,
+        server: Any,  # ExternalAgentServer instance
+    ):
+        self.name = name
+        self.config = config
+        self.server = server
+
+    @property
+    def endpoint(self) -> str:
+        return self.server.endpoint
+
+    @property
+    def port(self) -> int:
+        return self.server.port
+
+
 class AgentRegistry:
-    """Registry of all agents (native and external)."""
+    """Registry of all agents (native, external, and managed external)."""
 
     def __init__(self, factory: AgentFactory):
         """
@@ -25,6 +47,10 @@ class AgentRegistry:
         self._supervisor: Optional[SupervisorAgent] = None
         self._workers: Dict[str, WorkerAgent] = {}
         self._externals: Dict[str, ExternalAgent] = {}
+        # Managed external agents (started with the app)
+        self._managed_externals: Dict[str, ManagedExternalAgent] = {}
+        # Configs for external agents to be started
+        self._external_configs: Dict[str, AgentConfig] = {}
 
     def build(self, config: Config) -> None:
         """
@@ -33,8 +59,9 @@ class AgentRegistry:
         Args:
             config: Full system configuration.
         """
-        # First, collect all worker names for the roster
+        # First, collect all agent names by type
         worker_names = []
+        external_names = []
         supervisor_name = None
         supervisor_config = None
 
@@ -45,6 +72,9 @@ class AgentRegistry:
             elif agent_config.kind == AgentKind.NATIVE_WORKER:
                 if name not in config.native_workers.ignore_workers:
                     worker_names.append(name)
+            elif agent_config.kind == AgentKind.EXTERNAL:
+                external_names.append(name)
+                self._external_configs[name] = agent_config
 
         # Create workers
         for name in worker_names:
@@ -52,10 +82,10 @@ class AgentRegistry:
             worker = self._factory.create_worker(name, agent_config)
             self._workers[name] = worker
 
-        # Create supervisor with full roster
+        # Create supervisor with full roster (including external agents)
         if supervisor_name and supervisor_config:
-            # Roster includes workers and will later include externals
-            roster = list(worker_names)
+            # Roster includes workers; externals will be added when they start
+            roster = list(worker_names) + external_names
             self._supervisor = self._factory.create_supervisor(
                 supervisor_name,
                 supervisor_config,
@@ -65,8 +95,52 @@ class AgentRegistry:
         logger.info(
             "built_agent_registry",
             supervisor=supervisor_name,
-            workers=len(self._workers)
+            workers=len(self._workers),
+            external_configs=len(self._external_configs)
         )
+
+    def get_external_configs(self) -> Dict[str, AgentConfig]:
+        """Get configs for external agents that need to be started."""
+        return self._external_configs
+
+    def register_managed_external(
+        self,
+        name: str,
+        config: AgentConfig,
+        server: Any
+    ) -> None:
+        """
+        Register a managed external agent that was started with the app.
+
+        Args:
+            name: Agent name.
+            config: Agent configuration.
+            server: The running ExternalAgentServer instance.
+        """
+        managed = ManagedExternalAgent(name, config, server)
+        self._managed_externals[name] = managed
+
+        # Also create an ExternalAgent entry for graph building
+        external = ExternalAgent(
+            name=name,
+            description=config.description or "",
+            endpoint=server.endpoint,
+            import_mode="node",
+        )
+        # Store the server reference for later use
+        external._server = server
+        self._externals[name] = external
+
+        logger.info(
+            "registered_managed_external",
+            name=name,
+            endpoint=server.endpoint,
+            port=server.port
+        )
+
+    def get_managed_externals(self) -> List[ManagedExternalAgent]:
+        """Get all managed external agents."""
+        return list(self._managed_externals.values())
 
     def add_external(self, agent: ExternalAgent) -> None:
         """

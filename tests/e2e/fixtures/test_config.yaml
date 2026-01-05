@@ -111,8 +111,14 @@ agents:
     system_prompt: |
       You are a supervisor that routes tasks to specialized workers.
       Analyze requests and delegate to the appropriate worker.
-      If a task requires multiple capabilities, delegate sequentially.
-      Summarize results after workers complete.
+
+      IMPORTANT: For multi-part tasks:
+      1. Delegate each part to the appropriate specialist
+      2. After one agent completes, check if there are remaining parts
+      3. Delegate remaining parts to other agents as needed
+      4. Only provide final summary after ALL parts are complete
+
+      Each agent has specific capabilities - route tasks accordingly.
 
   # === GENERAL AGENTS (overlapping capabilities) ===
   analyst:

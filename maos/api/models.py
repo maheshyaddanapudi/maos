@@ -163,7 +163,10 @@ class OpenAIMessage(BaseModel):
 
 
 class OpenAIChatRequest(BaseModel):
-    """OpenAI-compatible chat completion request."""
+    """OpenAI-compatible chat completion request.
+
+    Extended with thread_id for conversation continuity and interrupt handling.
+    """
     model: str = "maos"
     messages: List[OpenAIMessage]
     temperature: Optional[float] = None
@@ -171,6 +174,12 @@ class OpenAIChatRequest(BaseModel):
     stream: bool = False
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[str] = None
+    # MAOS extension: thread_id for conversation continuity
+    thread_id: Optional[str] = Field(
+        None,
+        description="Thread ID for conversation continuity. If provided and a paused "
+                    "conversation exists, the last user message will resume the conversation."
+    )
 
 
 class OpenAIChoice(BaseModel):
@@ -188,13 +197,26 @@ class OpenAIUsage(BaseModel):
 
 
 class OpenAIChatResponse(BaseModel):
-    """OpenAI-compatible chat completion response."""
+    """OpenAI-compatible chat completion response.
+
+    Extended with thread_id and input_pending for interrupt handling.
+    """
     id: str
     object: str = "chat.completion"
     created: int
     model: str = "maos"
     choices: List[OpenAIChoice]
     usage: OpenAIUsage = Field(default_factory=OpenAIUsage)
+    # MAOS extensions for conversation continuity
+    thread_id: Optional[str] = Field(
+        None,
+        description="Thread ID for continuing this conversation"
+    )
+    input_pending: bool = Field(
+        default=False,
+        description="If true, the assistant is waiting for user input to continue. "
+                    "Send the next message with the same thread_id to resume."
+    )
 
 
 class OpenAIStreamDelta(BaseModel):

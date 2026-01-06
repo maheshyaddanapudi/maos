@@ -293,3 +293,146 @@ async def stream_openai_response(
         yield formatter.format_chunk(content=f"Error: {str(e)}")
         yield formatter.format_chunk(finish_reason="stop")
         yield formatter.format_done()
+
+
+async def stream_openai_response_with_interrupt(
+    graph,
+    config: Dict[str, Any],
+    roster: list,
+    messages: list,
+    is_resuming: bool,
+    latest_user_message: str,
+    model: str = "maos",
+    thread_id: str = ""
+) -> AsyncIterator[str]:
+    """
+    Stream graph execution in OpenAI-compatible format with interrupt handling.
+
+    This function handles both new conversations and resuming interrupted ones.
+    When the graph interrupts (via send_message), the interrupt message is
+    streamed as a normal assistant response.
+
+    Args:
+        graph: Compiled LangGraph.
+        config: Graph config with thread_id.
+        roster: List of available agents.
+        messages: Request messages.
+        is_resuming: Whether we're resuming a paused conversation.
+        latest_user_message: The most recent user message.
+        model: Model name to report.
+        thread_id: Thread ID for conversation tracking.
+
+    Yields:
+        OpenAI-formatted stream strings.
+    """
+    from langgraph.types import Command
+    from maos.graph.state import create_initial_state
+
+    formatter = OpenAIStreamFormatter(model=model)
+    first_chunk = True
+    collected_content = []
+
+    try:
+        if is_resuming:
+            # Resume with Command
+            logger.info("openai_stream_resume", thread_id=thread_id)
+
+            async for event in graph.astream_events(
+                Command(resume=latest_user_message),
+                config=config,
+                version="v2"
+            ):
+                chunk_content = _extract_stream_content(event)
+                if chunk_content:
+                    if first_chunk:
+                        yield formatter.format_chunk(role="assistant")
+                        first_chunk = False
+                    yield formatter.format_chunk(content=chunk_content)
+                    collected_content.append(chunk_content)
+        else:
+            # New conversation
+            logger.info("openai_stream_start", thread_id=thread_id)
+
+            # Convert messages
+            msg_dicts = [
+                {"role": msg.role, "content": msg.content, "name": msg.name}
+                for msg in messages
+            ]
+
+            initial_state = create_initial_state(
+                messages=msg_dicts,
+                roster=roster,
+                thread_id=thread_id
+            )
+
+            async for event in graph.astream_events(
+                initial_state,
+                config=config,
+                version="v2"
+            ):
+                chunk_content = _extract_stream_content(event)
+                if chunk_content:
+                    if first_chunk:
+                        yield formatter.format_chunk(role="assistant")
+                        first_chunk = False
+                    yield formatter.format_chunk(content=chunk_content)
+                    collected_content.append(chunk_content)
+
+        # Check if graph is interrupted
+        state = await graph.aget_state(config)
+        if state.next:
+            # Graph is paused - extract interrupt message
+            interrupt_msg = _extract_interrupt_from_state(state)
+            if interrupt_msg:
+                logger.info("openai_stream_interrupted", thread_id=thread_id)
+                # Stream the interrupt message as normal content
+                if first_chunk:
+                    yield formatter.format_chunk(role="assistant")
+                    first_chunk = False
+                yield formatter.format_chunk(content=interrupt_msg)
+
+        # Final chunk with finish reason
+        yield formatter.format_chunk(finish_reason="stop")
+        yield formatter.format_done()
+
+    except Exception as e:
+        logger.error("openai_stream_error", error=str(e), thread_id=thread_id)
+        if first_chunk:
+            yield formatter.format_chunk(role="assistant")
+        yield formatter.format_chunk(content=f"Error: {str(e)}")
+        yield formatter.format_chunk(finish_reason="stop")
+        yield formatter.format_done()
+
+
+def _extract_stream_content(event: Dict[str, Any]) -> Optional[str]:
+    """Extract content from a stream event."""
+    event_name = event.get("event", "")
+    event_data = event.get("data", {})
+
+    if event_name == "on_chain_stream":
+        chunk = event_data.get("chunk", {})
+        if isinstance(chunk, dict):
+            messages = chunk.get("messages", [])
+            for msg in messages:
+                # Handle AIMessage objects
+                if hasattr(msg, "type") and msg.type == "ai":
+                    content = getattr(msg, "content", "")
+                    if content:
+                        return str(content)
+                # Handle dict messages
+                elif isinstance(msg, dict):
+                    content = msg.get("content", "")
+                    if content:
+                        return str(content)
+
+    return None
+
+
+def _extract_interrupt_from_state(state) -> Optional[str]:
+    """Extract interrupt message from graph state."""
+    tasks = getattr(state, 'tasks', [])
+    if tasks and hasattr(tasks[0], 'interrupts') and tasks[0].interrupts:
+        interrupt_value = tasks[0].interrupts[0].value
+        if isinstance(interrupt_value, dict) and interrupt_value.get("type") == "input_required":
+            return interrupt_value.get("prompt", "")
+    return None

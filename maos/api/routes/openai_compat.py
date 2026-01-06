@@ -1,11 +1,18 @@
-"""OpenAI-compatible API endpoints."""
+"""OpenAI-compatible API endpoints with interrupt handling.
+
+This module provides OpenAI-compatible endpoints that work seamlessly with
+OpenWebUI and similar chat UIs. Interrupts from send_message are automatically
+converted to normal assistant messages, and the next user message resumes
+the conversation.
+"""
 
 import time
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from langgraph.types import Command
 import structlog
 
 from maos.api.models import (
@@ -15,7 +22,7 @@ from maos.api.models import (
     OpenAIMessage,
     OpenAIUsage,
 )
-from maos.api.streaming import stream_openai_response
+from maos.api.streaming import stream_openai_response_with_interrupt
 from maos.graph.state import create_initial_state
 
 logger = structlog.get_logger()
@@ -28,16 +35,55 @@ def get_app_context() -> Dict[str, Any]:
     return {}
 
 
+def _extract_interrupt_message(state) -> Optional[str]:
+    """Extract interrupt message from graph state if interrupted."""
+    if not state.next:
+        return None
+
+    tasks = getattr(state, 'tasks', [])
+    if tasks and hasattr(tasks[0], 'interrupts') and tasks[0].interrupts:
+        interrupt_value = tasks[0].interrupts[0].value
+        if isinstance(interrupt_value, dict) and interrupt_value.get("type") == "input_required":
+            return interrupt_value.get("prompt", "")
+
+    return None
+
+
+def _extract_final_content(result: Dict[str, Any]) -> str:
+    """Extract final assistant content from graph result."""
+    for msg in reversed(result.get("messages", [])):
+        # Handle AIMessage objects
+        if hasattr(msg, "type") and msg.type == "ai":
+            content = getattr(msg, "content", "")
+            if content:
+                return str(content)
+        # Handle dict messages
+        elif isinstance(msg, dict) and msg.get("role") == "assistant":
+            content = msg.get("content", "")
+            if content:
+                return str(content)
+
+    return ""
+
+
 @router.post("/chat/completions", response_model=OpenAIChatResponse)
 async def create_chat_completion(
     request: OpenAIChatRequest,
     context: Dict[str, Any] = Depends(get_app_context)
 ):
     """
-    OpenAI-compatible chat completions endpoint.
+    OpenAI-compatible chat completions endpoint with interrupt handling.
 
-    This allows MAOS to be used as a drop-in replacement for OpenAI's API
-    in applications that use the OpenAI client library.
+    This endpoint provides seamless integration with OpenWebUI and similar UIs:
+
+    1. **Normal flow**: User sends message → MAOS processes → Response returned
+    2. **Interrupt flow** (when send_message is used):
+       - MAOS needs user input → Returns message as normal response
+       - Response includes `input_pending: true` and `thread_id`
+       - User sends next message with same `thread_id` → Conversation resumes
+
+    This makes MAOS work as a drop-in replacement for OpenAI's API while
+    supporting human-in-the-loop interactions transparently.
     """
     graph = context.get("graph")
     agent_registry = context.get("agent_registry")
@@ -45,37 +91,39 @@ async def create_chat_completion(
     if not graph:
         raise HTTPException(status_code=503, detail="Graph not initialized")
 
-    # Generate thread ID
-    thread_id = str(uuid.uuid4())
+    # Use provided thread_id or generate new one
+    thread_id = request.thread_id or str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
 
     # Get roster
     roster = []
     if agent_registry and hasattr(agent_registry, 'get_roster'):
         roster = agent_registry.get_roster()
 
-    # Convert messages
-    messages = [
-        {
-            "role": msg.role,
-            "content": msg.content,
-            "name": msg.name
-        }
-        for msg in request.messages
-    ]
+    # Get the latest user message
+    latest_user_message = ""
+    for msg in reversed(request.messages):
+        if msg.role == "user":
+            latest_user_message = msg.content
+            break
 
-    # Create initial state
-    initial_state = create_initial_state(
-        messages=messages,
-        roster=roster,
-        thread_id=thread_id
-    )
-
-    config = {"configurable": {"thread_id": thread_id}}
+    # Check if there's a paused conversation to resume
+    state = await graph.aget_state(config)
+    is_resuming = state.next is not None
 
     # Handle streaming
     if request.stream:
         return StreamingResponse(
-            stream_openai_response(graph, initial_state, config, request.model),
+            stream_openai_response_with_interrupt(
+                graph=graph,
+                config=config,
+                roster=roster,
+                messages=request.messages,
+                is_resuming=is_resuming,
+                latest_user_message=latest_user_message,
+                model=request.model,
+                thread_id=thread_id
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -85,26 +133,74 @@ async def create_chat_completion(
 
     # Non-streaming execution
     try:
-        logger.info("openai_chat_start", thread_id=thread_id)
+        if is_resuming:
+            # Resume paused conversation with user's response
+            logger.info("openai_chat_resume", thread_id=thread_id)
+            result = await graph.ainvoke(
+                Command(resume=latest_user_message),
+                config=config
+            )
+        else:
+            # Start new conversation
+            logger.info("openai_chat_start", thread_id=thread_id)
 
-        result = await graph.ainvoke(initial_state, config=config)
+            # Convert messages
+            messages = [
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "name": msg.name
+                }
+                for msg in request.messages
+            ]
 
-        # Get final assistant message
-        final_content = ""
-        for msg in reversed(result.get("messages", [])):
-            if isinstance(msg, dict) and msg.get("role") == "assistant":
-                final_content = msg.get("content", "")
-                break
+            initial_state = create_initial_state(
+                messages=messages,
+                roster=roster,
+                thread_id=thread_id
+            )
 
-        # Build response
-        response_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-        created = int(time.time())
+            result = await graph.ainvoke(initial_state, config=config)
+
+        # Check if graph is now interrupted
+        state = await graph.aget_state(config)
+        interrupt_message = _extract_interrupt_message(state)
+
+        if interrupt_message:
+            # Graph is waiting for input - return interrupt as normal message
+            logger.info(
+                "openai_chat_interrupted",
+                thread_id=thread_id,
+                prompt=interrupt_message[:50]
+            )
+
+            return OpenAIChatResponse(
+                id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+                created=int(time.time()),
+                model=request.model,
+                choices=[
+                    OpenAIChoice(
+                        index=0,
+                        message=OpenAIMessage(
+                            role="assistant",
+                            content=interrupt_message
+                        ),
+                        finish_reason="stop"  # Appears normal to UI
+                    )
+                ],
+                usage=OpenAIUsage(),
+                thread_id=thread_id,
+                input_pending=True  # Signals that we're waiting for input
+            )
+
+        # Normal completion
+        final_content = _extract_final_content(result)
 
         logger.info("openai_chat_complete", thread_id=thread_id)
 
         return OpenAIChatResponse(
-            id=response_id,
-            created=created,
+            id=f"chatcmpl-{uuid.uuid4().hex[:12]}",
+            created=int(time.time()),
             model=request.model,
             choices=[
                 OpenAIChoice(
@@ -116,15 +212,13 @@ async def create_chat_completion(
                     finish_reason="stop"
                 )
             ],
-            usage=OpenAIUsage(
-                prompt_tokens=0,  # We don't track tokens
-                completion_tokens=0,
-                total_tokens=0
-            )
+            usage=OpenAIUsage(),
+            thread_id=thread_id,
+            input_pending=False
         )
 
     except Exception as e:
-        logger.error("openai_chat_error", error=str(e))
+        logger.error("openai_chat_error", error=str(e), thread_id=thread_id)
         raise HTTPException(
             status_code=500,
             detail=str(e)

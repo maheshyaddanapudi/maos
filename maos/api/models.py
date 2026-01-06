@@ -239,3 +239,129 @@ class OpenAIStreamChunk(BaseModel):
     created: int
     model: str = "maos"
     choices: List[OpenAIStreamChoice]
+
+
+# =============================================================================
+# LangGraph Studio API Models
+# =============================================================================
+
+class AssistantConfig(BaseModel):
+    """Configuration for an assistant."""
+    configurable: Dict[str, Any] = Field(default_factory=dict)
+
+
+class Assistant(BaseModel):
+    """LangGraph Studio assistant."""
+    assistant_id: str
+    graph_id: str
+    name: str
+    description: Optional[str] = None
+    config: AssistantConfig = Field(default_factory=AssistantConfig)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    updated_at: str
+
+
+class AssistantCreate(BaseModel):
+    """Request to create an assistant."""
+    graph_id: str = "maos"
+    name: Optional[str] = None
+    description: Optional[str] = None
+    config: Optional[AssistantConfig] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class AssistantSearch(BaseModel):
+    """Request to search assistants."""
+    graph_id: Optional[str] = None
+    name: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    limit: int = 100
+    offset: int = 0
+
+
+class Thread(BaseModel):
+    """LangGraph Studio thread."""
+    thread_id: str
+    created_at: str
+    updated_at: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    status: str = "idle"  # idle, busy, interrupted, error
+
+
+class ThreadCreate(BaseModel):
+    """Request to create a thread."""
+    thread_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class ThreadState(BaseModel):
+    """State of a thread."""
+    values: Dict[str, Any] = Field(default_factory=dict)
+    next: List[str] = Field(default_factory=list)
+    tasks: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[str] = None
+    parent_config: Optional[Dict[str, Any]] = None
+
+
+class ThreadStateUpdate(BaseModel):
+    """Request to update thread state."""
+    values: Dict[str, Any]
+    as_node: Optional[str] = None
+
+
+class RunConfig(BaseModel):
+    """Configuration for a run."""
+    configurable: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RunCreate(BaseModel):
+    """Request to create a run."""
+    assistant_id: str
+    input: Optional[Dict[str, Any]] = None
+    config: Optional[RunConfig] = None
+    metadata: Optional[Dict[str, Any]] = None
+    stream_mode: Optional[List[str]] = None  # ["values", "messages", "updates", "events"]
+    interrupt_before: Optional[List[str]] = None
+    interrupt_after: Optional[List[str]] = None
+    multitask_strategy: Optional[str] = None  # "reject", "rollback", "interrupt", "enqueue"
+
+
+class RunStatus(str, Enum):
+    """Status of a run."""
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    ERROR = "error"
+    INTERRUPTED = "interrupted"
+    TIMEOUT = "timeout"
+
+
+class Run(BaseModel):
+    """LangGraph Studio run."""
+    run_id: str
+    thread_id: str
+    assistant_id: str
+    status: RunStatus
+    created_at: str
+    updated_at: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RunOutput(BaseModel):
+    """Output from a completed run."""
+    run_id: str
+    thread_id: str
+    assistant_id: str
+    status: RunStatus
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+class StreamEvent(BaseModel):
+    """A streaming event."""
+    event: StreamEventType
+    data: Dict[str, Any]
+    timestamp: Optional[datetime] = None
+

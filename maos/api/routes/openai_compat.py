@@ -10,11 +10,12 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 import structlog
 
+from maos.api.thread_id import resolve_thread_id, OPENWEBUI_CONFIG
 from maos.api.models import (
     OpenAIChatRequest,
     OpenAIChatResponse,
@@ -69,6 +70,7 @@ def _extract_final_content(result: Dict[str, Any]) -> str:
 @router.post("/chat/completions", response_model=OpenAIChatResponse)
 async def create_chat_completion(
     request: OpenAIChatRequest,
+    http_request: Request,
     context: Dict[str, Any] = Depends(get_app_context)
 ):
     """
@@ -82,6 +84,12 @@ async def create_chat_completion(
        - Response includes `input_pending: true` and `thread_id`
        - User sends next message with same `thread_id` → Conversation resumes
 
+    Thread ID resolution (in priority order):
+    - Explicit thread_id in request body
+    - X-OpenWebUI-Chat-Id header (when ENABLE_FORWARD_USER_INFO_HEADERS is set)
+    - X-Thread-Id or X-Session-Id headers
+    - Auto-generated UUID
+
     This makes MAOS work as a drop-in replacement for OpenAI's API while
     supporting human-in-the-loop interactions transparently.
     """
@@ -91,8 +99,13 @@ async def create_chat_completion(
     if not graph:
         raise HTTPException(status_code=503, detail="Graph not initialized")
 
-    # Use provided thread_id or generate new one
-    thread_id = request.thread_id or str(uuid.uuid4())
+    # Resolve thread_id using unified strategy (checks headers, body, etc.)
+    thread_id = resolve_thread_id(
+        request=http_request,
+        body={"thread_id": request.thread_id},
+        explicit_id=request.thread_id,
+        config=OPENWEBUI_CONFIG
+    )
     config = {"configurable": {"thread_id": thread_id}}
 
     # Get roster

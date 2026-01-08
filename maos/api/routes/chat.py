@@ -3,11 +3,12 @@
 import uuid
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 import structlog
 
+from maos.api.thread_id import resolve_thread_id
 from maos.api.models import (
     ChatRequest,
     ChatResponse,
@@ -44,6 +45,7 @@ def get_checkpointer():
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
+    http_request: Request,
     context: Dict[str, Any] = Depends(get_app_context)
 ):
     """
@@ -51,6 +53,12 @@ async def chat(
 
     If stream=True, returns Server-Sent Events stream.
     Otherwise, returns the complete response.
+
+    Thread ID resolution (in priority order):
+    - Explicit thread_id in request body
+    - X-OpenWebUI-Chat-Id header
+    - X-Thread-Id, X-Session-Id headers
+    - Auto-generated UUID
     """
     graph = context.get("graph")
     agent_registry = context.get("agent_registry")
@@ -58,8 +66,12 @@ async def chat(
     if not graph:
         raise HTTPException(status_code=503, detail="Graph not initialized")
 
-    # Generate or use provided thread ID
-    thread_id = request.thread_id or str(uuid.uuid4())
+    # Resolve thread_id using unified strategy
+    thread_id = resolve_thread_id(
+        request=http_request,
+        body={"thread_id": request.thread_id},
+        explicit_id=request.thread_id
+    )
 
     # Get roster from agent registry
     roster = []
@@ -253,6 +265,7 @@ async def resume_chat(
 @router.post("/chat/stream")
 async def chat_stream(
     request: ChatRequest,
+    http_request: Request,
     context: Dict[str, Any] = Depends(get_app_context)
 ):
     """
@@ -262,7 +275,7 @@ async def chat_stream(
     """
     # Force streaming
     request.stream = True
-    return await chat(request, context)
+    return await chat(request, http_request, context)
 
 
 @router.get("/chat/{thread_id}/state")

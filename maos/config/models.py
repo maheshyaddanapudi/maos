@@ -138,11 +138,30 @@ class TimeoutsConfig(BaseModel):
     total_execution_seconds: int = Field(default=300, ge=1)
 
 
+class CheckpointerConfig(BaseModel):
+    """Configuration for graph state persistence.
+
+    Supports:
+    - memory: In-memory storage (lost on restart)
+    - sqlite: SQLite database (persistent, single-server)
+    - postgres: PostgreSQL (persistent, multi-server, production)
+    """
+    type: Literal["memory", "sqlite", "postgres"] = "memory"
+    # SQLite settings
+    sqlite_path: str = Field(default="maos_checkpoints.db", description="Path to SQLite database file")
+    # PostgreSQL settings
+    postgres_uri: Optional[str] = Field(default=None, description="PostgreSQL connection URI")
+    postgres_uri_env: Optional[str] = Field(default=None, description="Env var containing PostgreSQL URI")
+    # Common settings
+    table_name: str = Field(default="checkpoints", description="Table name for checkpoints")
+
+
 class GraphConfig(BaseModel):
     """LangGraph execution configuration."""
     max_iterations: int = Field(default=12, ge=1, le=100)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     retry_policy: Optional[RetryPolicy] = None
+    checkpointer: CheckpointerConfig = Field(default_factory=CheckpointerConfig)
 
 
 class APIConfig(BaseModel):

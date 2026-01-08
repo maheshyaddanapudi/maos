@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import structlog
 
 from maos.config.models import Config, ServingConfig
-from maos.api.routes import health, agents, chat, openai_compat, tasks, langgraph_studio
+from maos.api.routes import health, agents, chat, openai_compat, tasks, langgraph_studio, conversations
 
 logger = structlog.get_logger()
 
@@ -30,6 +30,7 @@ class AppContext:
         self.agent_registry = None
         self.graph = None
         self.checkpointer = None
+        self.conversation_store = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for route handlers."""
@@ -42,7 +43,8 @@ class AppContext:
             "skillset_registry": self.skillset_registry,
             "agent_registry": self.agent_registry,
             "graph": self.graph,
-            "checkpointer": self.checkpointer
+            "checkpointer": self.checkpointer,
+            "conversation_store": self.conversation_store,
         }
 
 
@@ -101,6 +103,7 @@ def create_app(
     app.include_router(openai_compat.router)
     app.include_router(tasks.router)
     app.include_router(langgraph_studio.router)
+    app.include_router(conversations.router)
 
     # Override dependencies
     app.dependency_overrides[health.get_app_context] = override_context
@@ -109,6 +112,7 @@ def create_app(
     app.dependency_overrides[openai_compat.get_app_context] = override_context
     app.dependency_overrides[tasks.get_app_context] = override_context
     app.dependency_overrides[langgraph_studio.get_app_context] = override_context
+    app.dependency_overrides[conversations.get_app_context] = override_context
 
     # Store config in context
     if config:
@@ -132,7 +136,8 @@ def set_app_context(
     skillset_registry=None,
     agent_registry=None,
     graph=None,
-    checkpointer=None
+    checkpointer=None,
+    conversation_store=None
 ) -> None:
     """
     Set the application context.
@@ -156,6 +161,8 @@ def set_app_context(
         _app_context.graph = graph
     if checkpointer is not None:
         _app_context.checkpointer = checkpointer
+    if conversation_store is not None:
+        _app_context.conversation_store = conversation_store
 
     logger.debug("app_context_updated")
 

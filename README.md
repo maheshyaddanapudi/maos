@@ -599,16 +599,40 @@ skillsets:
 
 ## A2A External Agents
 
-MAOS can discover and communicate with external agents via A2A protocol.
+MAOS supports external agents via the A2A (Agent-to-Agent) protocol. External agents can be:
+- **Managed** - Started by MAOS and run locally (e.g., the built-in title_generator)
+- **Remote** - Already running elsewhere, discovered via A2A protocol
 
-### Discovery Process
+### Built-in Title Generator
 
-1. At boot time, MAOS fetches Agent Cards from configured seed URLs
-2. Agent Cards describe capabilities, skills, and endpoints
-3. Based on `import_policy`, agents are imported as graph nodes or tools
-4. During execution, supervisor can route to external agents
+MAOS includes a built-in `title_generator` agent that demonstrates managed external agents:
 
-### Configuration
+```yaml
+agents:
+  # ... supervisor and workers ...
+
+  # Managed external agent - MAOS starts this automatically
+  title_generator:
+    kind: external
+    llm: default
+    system_prompt: |
+      You generate concise, descriptive titles for conversations.
+      Rules: Max 5-8 words, be specific, use title case, output only the title.
+    description: Generates conversation titles
+    server:
+      host: "127.0.0.1"
+      # port: null  # Dynamic port - MAOS assigns a free port
+      implementation: title_generator  # Built-in implementation
+```
+
+The title_generator runs as a full A2A server with:
+- Agent card at `/.well-known/agent.json`
+- JSON-RPC endpoint at `/`
+- Integration with the configured LLM
+
+### Remote External Agents
+
+For agents running elsewhere, use A2A discovery:
 
 ```yaml
 a2a:
@@ -630,32 +654,133 @@ a2a:
     max_agents: 20
 ```
 
-### Creating an A2A Agent
+### Creating a Custom A2A Agent
 
-See [docs/D61-implementing-external-a2a-agent.md](docs/D60-D65-implementation-guides.md) for complete guide.
+You can create your own A2A-compliant agent using the MAOS base class:
 
 ```python
-# Minimal A2A agent
+# my_agent.py
+from maos.a2a.agents.base import ExternalAgentServer
+from typing import Any, Dict, Optional
+
+class MyCustomAgent(ExternalAgentServer):
+    """Custom A2A agent with specialized capabilities."""
+
+    def __init__(self, name: str = "my_agent", port: int = 9010):
+        skills = [
+            {
+                "id": "analyze_data",
+                "name": "Data Analysis",
+                "description": "Analyze datasets and return insights"
+            }
+        ]
+        super().__init__(
+            name=name,
+            description="Custom data analysis agent",
+            host="0.0.0.0",
+            port=port,
+            skills=skills
+        )
+        self._llm = None  # Set via set_llm() or inject in __init__
+
+    async def _process(self, task: str, context: Optional[Dict[str, Any]] = None) -> str:
+        """Process incoming A2A requests."""
+        # Your agent logic here
+        # Can use self._llm for LLM calls if configured
+        return f"Analysis complete for: {task[:50]}..."
+
+# Run as standalone server
+if __name__ == "__main__":
+    import asyncio
+    agent = MyCustomAgent(port=9010)
+    asyncio.run(agent.start())
+```
+
+Or use a minimal Starlette implementation for maximum flexibility:
+
+```python
+# standalone_agent.py
+import asyncio
 from starlette.applications import Starlette
+from starlette.routing import Route
 from starlette.responses import JSONResponse
 
 AGENT_CARD = {
     "protocolVersion": "1.0",
-    "name": "my-agent",
-    "description": "My specialized agent",
+    "name": "standalone-agent",
+    "description": "Standalone A2A agent",
+    "version": "1.0.0",
     "supportedInterfaces": [
-        {"url": "http://localhost:9010/a2a", "protocolBinding": "JSONRPC"}
+        {"url": "http://localhost:9010/", "protocolBinding": "JSONRPC"}
     ],
+    "capabilities": {"streaming": False},
+    "defaultInputModes": ["text/plain"],
+    "defaultOutputModes": ["text/plain"],
     "skills": [
-        {"id": "analyze", "name": "Data Analysis", "tags": ["analytics"]}
+        {"id": "process", "name": "Process Data", "tags": ["data"]}
     ]
 }
 
+async def agent_card(request):
+    return JSONResponse(AGENT_CARD)
+
+async def handle_request(request):
+    body = await request.json()
+    method = body.get("method", "")
+    request_id = body.get("id", "0")
+
+    if method == "message/send":
+        # Extract message content
+        params = body.get("params", {})
+        message = params.get("message", {})
+        parts = message.get("parts", [])
+        text = "".join(p.get("text", "") for p in parts if p.get("type") == "text")
+
+        # Process and respond
+        result = f"Processed: {text}"
+
+        return JSONResponse({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "task": {
+                    "id": f"task-{request_id}",
+                    "status": "COMPLETED",
+                    "result": {
+                        "role": "agent",
+                        "parts": [{"type": "text", "text": result}]
+                    }
+                }
+            }
+        })
+
+    return JSONResponse({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": "Method not found"}})
+
 app = Starlette(routes=[
-    Route("/.well-known/agent.json", lambda r: JSONResponse(AGENT_CARD)),
-    Route("/a2a", handle_a2a, methods=["POST"]),
+    Route("/.well-known/agent.json", agent_card),
+    Route("/", handle_request, methods=["POST"]),
 ])
+
+# Run: uvicorn standalone_agent:app --port 9010
 ```
+
+### Using Remote Agents
+
+Once a remote agent is running, add it to MAOS discovery seeds:
+
+```yaml
+a2a:
+  discovery:
+    seeds:
+      - "http://localhost:9010"  # Your custom agent
+```
+
+MAOS will:
+1. Fetch the agent card from `/.well-known/agent.json`
+2. Register the agent in the roster
+3. Allow the supervisor to route tasks to it
+
+See [docs/D61-implementing-external-a2a-agent.md](docs/D60-D65-implementation-guides.md) for complete guide.
 
 ---
 

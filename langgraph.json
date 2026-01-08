@@ -1,0 +1,12 @@
+{
+  "$schema": "https://langchain-ai.github.io/langgraph/schemas/langgraph.config.schema.json",
+  "graphs": {
+    "maos": {
+      "path": "./maos/graph/factory.py:create_graph",
+      "description": "MAOS Multi-Agent Orchestration System - Config-driven multi-agent orchestration with LangGraph, MCP, and A2A"
+    }
+  },
+  "env": ".env",
+  "dependencies": ["./pyproject.toml"],
+  "python_version": "3.11"
+}

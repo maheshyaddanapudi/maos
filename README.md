@@ -123,13 +123,18 @@ User Request
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| LangGraph Supervisor | 🎯 Core | Routing loop with iteration limits |
-| Native Workers | 🎯 Core | Any-Agent with configurable frameworks |
-| MCP Integration | 🎯 Core | stdio and HTTP transports |
-| A2A Discovery | 🎯 Core | Agent Cards, host index |
-| REST API | 🎯 Core | FastAPI with validation |
-| SSE Streaming | 🎯 Core | Token-level streaming |
-| Human-in-Loop | 🎯 Core | send_message tool |
+| LangGraph Supervisor | ✅ Complete | Routing loop with iteration limits |
+| Native Workers | ✅ Complete | Any-Agent with configurable frameworks |
+| MCP Integration | ✅ Complete | stdio and HTTP transports |
+| A2A Discovery | ✅ Complete | Agent Cards, host index |
+| REST API | ✅ Complete | FastAPI with validation |
+| SSE Streaming | ✅ Complete | Token-level streaming |
+| Human-in-Loop | ✅ Complete | send_message tool with interrupt/resume |
+| OpenAI-Compatible API | ✅ Complete | Drop-in replacement with transparent HITL |
+| LangGraph Studio API | ✅ Complete | Full Studio compatibility |
+| Conversation Persistence | ✅ Complete | SQLite/PostgreSQL checkpointer |
+| Conversation History API | ✅ Complete | List, retrieve, delete conversations |
+| Multi-Interface Thread IDs | ✅ Complete | OpenWebUI, LangGraph, custom headers |
 | Authentication | 📋 Phase 2 | Extension points ready |
 | Multi-tenancy | 📋 Phase 2 | Extension points ready |
 | Horizontal Scale | 📋 Phase 3 | Architecture supports it |
@@ -263,6 +268,13 @@ graph:
   timeouts:
     worker_seconds: 60
     tool_call_seconds: 30
+  # Conversation persistence (default: memory)
+  checkpointer:
+    type: sqlite  # memory | sqlite | postgres
+    sqlite_path: "conversations.db"
+    # For PostgreSQL:
+    # type: postgres
+    # postgres_uri_env: "DATABASE_URL"
 
 # API Server
 serving:
@@ -287,6 +299,16 @@ See [docs/D26-config-reference-guide.md](docs/D26-config-reference-guide.md) for
 | `GET` | `/agents` | List available agents |
 | `GET` | `/health` | Health check |
 | `POST` | `/v1/chat/completions` | OpenAI-compatible endpoint |
+| `GET` | `/conversations` | List all conversations |
+| `GET` | `/conversations/{thread_id}` | Get conversation details |
+| `GET` | `/conversations/{thread_id}/messages` | Get conversation messages |
+| `DELETE` | `/conversations/{thread_id}` | Delete a conversation |
+| `GET` | `/conversations/{thread_id}/status` | Get interrupt status |
+| `GET` | `/assistants` | LangGraph Studio: List assistants |
+| `GET` | `/threads` | LangGraph Studio: List threads |
+| `POST` | `/threads` | LangGraph Studio: Create thread |
+| `GET` | `/threads/{thread_id}/state` | LangGraph Studio: Get thread state |
+| `POST` | `/threads/{thread_id}/runs` | LangGraph Studio: Run on thread |
 
 ### Chat Request
 
@@ -838,17 +860,23 @@ Complete documentation is in the `docs/` directory:
 
 ## Roadmap
 
-### Phase 1: Prototype (Current)
+### Phase 1: Prototype (Complete)
 - [x] Architecture design
 - [x] Documentation (68 docs)
-- [ ] Core implementation
-- [ ] Basic testing
+- [x] Core implementation (LangGraph supervisor, native workers, MCP tools)
+- [x] E2E testing (239 tests passing)
+- [x] OpenAI-compatible API
+- [x] LangGraph Studio API compatibility
+- [x] Persistent conversation state (SQLite/PostgreSQL)
+- [x] Conversation history API
+- [x] Human-in-the-loop with interrupt/resume
+- [x] A2A external agent support
 
-### Phase 2: Hardening
+### Phase 2: Hardening (Current)
 - [ ] Authentication/Authorization
-- [ ] Persistent conversation state
-- [ ] Comprehensive test coverage
+- [ ] Multi-tenancy foundations
 - [ ] Performance optimization
+- [ ] Production logging and monitoring
 
 ### Phase 3: Scale
 - [ ] Multi-tenancy

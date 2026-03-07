@@ -13,7 +13,16 @@ from maos.config.models import Config
 
 logger = structlog.get_logger()
 
-_SECURITY_PATHS = {"auth", "security", "api_keys", "keys", "cors"}
+_SECURITY_PATHS = {
+    "auth",
+    "security",
+    "api_keys",
+    "keys",
+    "cors",
+    "a2a",
+    "mcp_servers",
+    "command",
+}
 
 
 class ConfigError(Exception):

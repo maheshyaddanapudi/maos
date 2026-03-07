@@ -398,11 +398,11 @@ async def run_interactive(config_path: str) -> None:
     graph, context = await initialize_system(config_path)
     agent_registry = context["agent_registry"]
 
-    print("\n=== MAOS Interactive Mode ===")
-    print("Type your message and press Enter. Type 'quit' to exit.\n")
+    sys.stdout.write("\n=== MAOS Interactive Mode ===\n")
+    sys.stdout.write("Type your message and press Enter. Type 'quit' to exit.\n\n")
 
     roster = agent_registry.get_roster()
-    print(f"Available agents: {', '.join(roster)}\n")
+    sys.stdout.write(f"Available agents: {', '.join(roster)}\n\n")
 
     thread_id = "interactive-session"
     messages = []
@@ -437,17 +437,17 @@ async def run_interactive(config_path: str) -> None:
                 # Get last assistant message
                 for msg in reversed(result.get("messages", [])):
                     if isinstance(msg, dict) and msg.get("role") == "assistant":
-                        print(f"\nAssistant: {msg.get('content', '')}\n")
+                        sys.stdout.write(f"\nAssistant: {msg.get('content', '')}\n\n")
                         messages.append(msg)
                         break
 
             except Exception as e:
                 logger.error("interactive_error", error=str(e))
-                print("\nError: An error occurred while processing your request.\n")
+                sys.stdout.write("\nError: An error occurred while processing your request.\n\n")
 
     finally:
         await shutdown_system(context)
-        print("\nGoodbye!")
+        sys.stdout.write("\nGoodbye!\n")
 
 
 async def validate_config(config_path: str) -> bool:

@@ -2,17 +2,28 @@
 
 Tests cover:
 - SSRF protection: _is_internal_url() in discovery.py
+- SSRF protection: A2A client endpoint validation
+- SSRF protection: discovery endpoint validation
 - SSE chunk filtering: _format_studio_event() in langgraph_studio.py
 - Env override blocking: _apply_env_overrides() in loader.py
 - Input validation: regex patterns for thread/run/agent IDs
+- Auth exclude_paths defaults
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from maos.a2a.discovery import _is_internal_url
+from maos.a2a.client import A2AClient
+from maos.a2a.discovery import A2ADiscovery, _is_internal_url
+from maos.a2a.models import (
+    AgentCapabilities,
+    AgentCard,
+    DiscoveredAgent,
+    ServiceInterface,
+)
+from maos.api.middleware.auth import AuthConfig
 from maos.api.routes.agents import _VALID_AGENT_NAME
 from maos.api.routes.langgraph_studio import _VALID_RESOURCE_ID, _format_studio_event
 from maos.api.thread_id import _VALID_THREAD_ID
@@ -305,6 +316,27 @@ class TestEnvOverrideSecurityBlocking:
         assert "mode" not in result.get("security", {})
         assert "allow" not in result.get("cors", {})
 
+    def test_blocks_a2a_override(self, monkeypatch):
+        """Env vars targeting 'a2a' paths should be blocked."""
+        monkeypatch.setenv("MAOS_A2A_DISCOVERY_SEEDS", '["http://evil.com"]')
+        loader = ConfigLoader()
+        result = loader._apply_env_overrides({})
+        assert "seeds" not in result.get("a2a", {}).get("discovery", {})
+
+    def test_blocks_mcp_servers_override(self, monkeypatch):
+        """Env vars targeting 'mcp_servers' paths should be blocked."""
+        monkeypatch.setenv("MAOS_MCP_SERVERS_EVIL_COMMAND", "rm -rf /")
+        loader = ConfigLoader()
+        result = loader._apply_env_overrides({})
+        assert "evil" not in result.get("mcp_servers", {})
+
+    def test_blocks_command_override(self, monkeypatch):
+        """Env vars targeting 'command' paths should be blocked."""
+        monkeypatch.setenv("MAOS_TOOLS_COMMAND_EXEC", "true")
+        loader = ConfigLoader()
+        result = loader._apply_env_overrides({})
+        assert "exec" not in result.get("tools", {}).get("command", {})
+
 
 # =============================================================================
 # Input Validation Regex Patterns
@@ -416,3 +448,151 @@ class TestAgentNameValidation:
     )
     def test_invalid_agent_names(self, name):
         assert _VALID_AGENT_NAME.match(name) is None
+
+
+# =============================================================================
+# A2A Client SSRF Protection
+# =============================================================================
+
+
+def _make_discovered_agent(endpoint: str) -> DiscoveredAgent:
+    """Helper to create a DiscoveredAgent with a given endpoint."""
+    card = AgentCard(
+        name="test-agent",
+        description="Test agent",
+        url="https://example.com/.well-known/agent.json",
+        version="1.0",
+        capabilities=AgentCapabilities(),
+    )
+    return DiscoveredAgent(
+        card=card,
+        source_url="https://example.com/.well-known/agent.json",
+        endpoint=endpoint,
+        import_mode="node",
+    )
+
+
+@pytest.mark.unit
+class TestA2AClientSSRFProtection:
+    """Tests for SSRF protection in A2AClient."""
+
+    async def test_send_message_blocks_internal_endpoint(self):
+        """A2A client should refuse to send messages to internal endpoints."""
+        client = A2AClient()
+        agent = _make_discovered_agent("http://127.0.0.1:8080/api")
+        response = await client.send_message(agent, "hello")
+        assert response.error is not None
+        assert response.error.code == -32001
+        await client.close()
+
+    async def test_send_message_blocks_metadata_endpoint(self):
+        """A2A client should block cloud metadata endpoints."""
+        client = A2AClient()
+        agent = _make_discovered_agent("http://169.254.169.254/latest/meta-data/")
+        response = await client.send_message(agent, "hello")
+        assert response.error is not None
+        await client.close()
+
+    async def test_stream_message_blocks_internal_endpoint(self):
+        """A2A client should refuse to stream to internal endpoints."""
+        client = A2AClient()
+        agent = _make_discovered_agent("http://10.0.0.1/api")
+        chunks = [c async for c in client.stream_message(agent, "hello")]
+        assert chunks == []
+        await client.close()
+
+    async def test_get_task_status_blocks_internal_endpoint(self):
+        """A2A client should refuse to get task status from internal endpoints."""
+        client = A2AClient()
+        agent = _make_discovered_agent("http://192.168.1.1/api")
+        result = await client.get_task_status(agent, "task-123")
+        assert result is None
+        await client.close()
+
+
+# =============================================================================
+# Discovery Endpoint SSRF Validation
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestDiscoveryEndpointSSRF:
+    """Tests for endpoint validation in A2ADiscovery._fetch_and_create_agent."""
+
+    async def test_rejects_agent_with_internal_endpoint(self):
+        """Discovery should reject agents whose card endpoint is internal."""
+        discovery = A2ADiscovery()
+
+        mock_card = AgentCard(
+            name="malicious-agent",
+            description="Agent with internal endpoint",
+            url="https://external.com/.well-known/agent.json",
+            version="1.0",
+            capabilities=AgentCapabilities(),
+            supportedInterfaces=[
+                ServiceInterface(url="http://169.254.169.254/latest/meta-data/"),
+            ],
+        )
+
+        with patch.object(discovery, "_fetch_agent_card", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = mock_card
+
+            from maos.config.models import A2AConfig
+
+            config = A2AConfig()
+            result = await discovery._fetch_and_create_agent(
+                "https://external.com/.well-known/agent.json", config
+            )
+
+        assert result is None
+
+    async def test_accepts_agent_with_external_endpoint(self):
+        """Discovery should accept agents with external endpoints."""
+        discovery = A2ADiscovery()
+
+        mock_card = AgentCard(
+            name="good-agent",
+            description="Agent with external endpoint",
+            url="https://external.com/.well-known/agent.json",
+            version="1.0",
+            capabilities=AgentCapabilities(),
+            supportedInterfaces=[
+                ServiceInterface(url="https://api.external.com/a2a"),
+            ],
+        )
+
+        with patch.object(discovery, "_fetch_agent_card", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = mock_card
+
+            from maos.config.models import A2AConfig
+
+            config = A2AConfig()
+            result = await discovery._fetch_and_create_agent(
+                "https://external.com/.well-known/agent.json", config
+            )
+
+        assert result is not None
+        assert result.endpoint == "https://api.external.com/a2a"
+
+
+# =============================================================================
+# Auth Exclude Paths Defaults
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestAuthExcludePathsDefaults:
+    """Tests that /docs and /openapi.json are NOT in default exclude_paths."""
+
+    def test_docs_not_excluded_by_default(self):
+        """API docs should require auth by default."""
+        config = AuthConfig()
+        assert "/docs" not in config.exclude_paths
+        assert "/openapi.json" not in config.exclude_paths
+
+    def test_health_still_excluded_by_default(self):
+        """Health endpoints should still be excluded by default."""
+        config = AuthConfig()
+        assert "/health" in config.exclude_paths
+        assert "/live" in config.exclude_paths
+        assert "/ready" in config.exclude_paths

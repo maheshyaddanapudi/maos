@@ -196,7 +196,7 @@ async def get_conversation(
         state = await graph.aget_state(config)
 
         if not state or state.values is None:
-            raise HTTPException(status_code=404, detail=f"Conversation {thread_id} not found")
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
         # Extract messages
         raw_messages = state.values.get("messages", [])
@@ -306,7 +306,7 @@ async def delete_conversation(
             logger.info("conversation_deleted", thread_id=thread_id)
             return {"deleted": True, "thread_id": thread_id}
         else:
-            raise HTTPException(status_code=404, detail=f"Conversation {thread_id} not found")
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
     except HTTPException:
         raise

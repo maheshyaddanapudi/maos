@@ -153,7 +153,7 @@ async def get_assistant(
     _init_default_assistant(context)
 
     if assistant_id not in _assistants:
-        raise HTTPException(status_code=404, detail=f"Assistant {assistant_id} not found")
+        raise HTTPException(status_code=404, detail="Assistant not found")
 
     return _assistants[assistant_id]
 
@@ -164,7 +164,7 @@ async def delete_assistant(
 ) -> dict[str, str]:
     """Delete an assistant."""
     if assistant_id not in _assistants:
-        raise HTTPException(status_code=404, detail=f"Assistant {assistant_id} not found")
+        raise HTTPException(status_code=404, detail="Assistant not found")
 
     if assistant_id == "default":
         raise HTTPException(status_code=400, detail="Cannot delete default assistant")
@@ -190,7 +190,7 @@ async def create_thread(
     now = _now_iso()
 
     if thread_id in _threads:
-        raise HTTPException(status_code=409, detail=f"Thread {thread_id} already exists")
+        raise HTTPException(status_code=409, detail="Thread already exists")
 
     thread = Thread(
         thread_id=thread_id,
@@ -212,7 +212,7 @@ async def get_thread(thread_id: str, context: dict[str, Any] = Depends(get_app_c
     if not _VALID_THREAD_ID.match(thread_id):
         raise HTTPException(status_code=400, detail="Invalid thread ID format")
     if thread_id not in _threads:
-        raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
+        raise HTTPException(status_code=404, detail="Thread not found")
 
     return _threads[thread_id]
 
@@ -225,7 +225,7 @@ async def delete_thread(
     if not _VALID_THREAD_ID.match(thread_id):
         raise HTTPException(status_code=400, detail="Invalid thread ID format")
     if thread_id not in _threads:
-        raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
+        raise HTTPException(status_code=404, detail="Thread not found")
 
     del _threads[thread_id]
 
@@ -255,16 +255,37 @@ async def get_thread_state(
     try:
         state = await graph.aget_state(config)
 
-        values = state.values if state.values else {}
+        raw_values = state.values if state.values else {}
         next_nodes = list(state.next) if state.next else []
 
-        # Extract tasks info
+        # Filter state to only expose safe fields (messages + metadata)
+        safe_messages = []
+        for msg in raw_values.get("messages", []):
+            if isinstance(msg, dict):
+                safe_messages.append(
+                    {
+                        "role": msg.get("role", "unknown"),
+                        "content": msg.get("content", ""),
+                        "name": msg.get("name"),
+                    }
+                )
+            elif hasattr(msg, "content"):
+                safe_messages.append(
+                    {
+                        "role": getattr(msg, "type", "unknown"),
+                        "content": str(msg.content),
+                        "name": getattr(msg, "name", None),
+                    }
+                )
+        values = {"messages": safe_messages}
+
+        # Extract tasks info (sanitize interrupt values)
         tasks_info = []
         if hasattr(state, "tasks") and state.tasks:
             for task in state.tasks:
-                task_info = {"id": str(id(task))}
+                task_info: dict[str, Any] = {"id": str(id(task))}
                 if hasattr(task, "interrupts") and task.interrupts:
-                    task_info["interrupts"] = [{"value": i.value} for i in task.interrupts]
+                    task_info["interrupts"] = [{"value": str(i.value)} for i in task.interrupts]
                 tasks_info.append(task_info)
 
         return ThreadState(
@@ -332,7 +353,7 @@ async def create_run(
 
     # Verify assistant exists
     if request.assistant_id not in _assistants:
-        raise HTTPException(status_code=404, detail=f"Assistant {request.assistant_id} not found")
+        raise HTTPException(status_code=404, detail="Assistant not found")
 
     run_id = str(uuid.uuid4())
     now = _now_iso()
@@ -424,7 +445,7 @@ async def create_run_stream(
     _init_default_assistant(context)
 
     if request.assistant_id not in _assistants:
-        raise HTTPException(status_code=404, detail=f"Assistant {request.assistant_id} not found")
+        raise HTTPException(status_code=404, detail="Assistant not found")
 
     run_id = str(uuid.uuid4())
 
@@ -546,17 +567,21 @@ def _format_studio_event(event: dict[str, Any]) -> str | None:
                 safe_messages = []
                 for msg in chunk["messages"]:
                     if hasattr(msg, "content"):
-                        safe_messages.append({
-                            "role": getattr(msg, "type", "unknown"),
-                            "content": str(msg.content),
-                            "name": getattr(msg, "name", None),
-                        })
+                        safe_messages.append(
+                            {
+                                "role": getattr(msg, "type", "unknown"),
+                                "content": str(msg.content),
+                                "name": getattr(msg, "name", None),
+                            }
+                        )
                     elif isinstance(msg, dict):
-                        safe_messages.append({
-                            "role": msg.get("role", "unknown"),
-                            "content": str(msg.get("content", "")),
-                            "name": msg.get("name"),
-                        })
+                        safe_messages.append(
+                            {
+                                "role": msg.get("role", "unknown"),
+                                "content": str(msg.get("content", "")),
+                                "name": msg.get("name"),
+                            }
+                        )
                 safe_chunk["messages"] = safe_messages
             else:
                 # Non-message chunks: only pass through known-safe event keys
@@ -587,11 +612,11 @@ async def get_run(
     if not _VALID_RESOURCE_ID.match(run_id):
         raise HTTPException(status_code=400, detail="Invalid run ID format")
     if run_id not in _runs:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        raise HTTPException(status_code=404, detail="Run not found")
 
     run = _runs[run_id]
     if run.thread_id != thread_id:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} not found in thread {thread_id}")
+        raise HTTPException(status_code=404, detail="Run not found")
 
     return run
 
@@ -629,13 +654,11 @@ async def resume_run(
     if not _VALID_RESOURCE_ID.match(run_id):
         raise HTTPException(status_code=400, detail="Invalid run ID format")
     if run_id not in _runs:
-        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        raise HTTPException(status_code=404, detail="Run not found")
 
     run = _runs[run_id]
     if run.status != RunStatus.INTERRUPTED:
-        raise HTTPException(
-            status_code=400, detail=f"Run {run_id} is not interrupted (status: {run.status.value})"
-        )
+        raise HTTPException(status_code=400, detail="Run is not in interrupted state")
 
     # Create a new run for the resume
     return await create_run(thread_id, request, context)

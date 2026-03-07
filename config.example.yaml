@@ -196,7 +196,7 @@ graph:
 
 serving:
   api:
-    host: "0.0.0.0"
+    host: "127.0.0.1"            # Use 0.0.0.0 only if external access needed
     port: 7777
     cors_origins:
       - "http://localhost:3000"   # Frontend dev server

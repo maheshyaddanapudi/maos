@@ -117,9 +117,7 @@ def create_external_agent_graph(external: ExternalAgent, a2a_client: A2AClient) 
             logger.error("external_agent_call_failed", agent=external.name, error=str(e))
             return {
                 "messages": [
-                    AIMessage(
-                        content=f"External agent '{external.name}' is currently unavailable."
-                    )
+                    AIMessage(content=f"External agent '{external.name}' is currently unavailable.")
                 ]
             }
 

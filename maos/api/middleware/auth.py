@@ -23,8 +23,6 @@ class AuthConfig(BaseModel):
             "/health",
             "/live",
             "/ready",
-            "/docs",
-            "/openapi.json",
         ]
     )
 

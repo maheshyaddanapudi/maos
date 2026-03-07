@@ -312,11 +312,32 @@ async def get_thread_state(
         state = await graph.aget_state(config)
 
         if state.values is None:
-            raise HTTPException(status_code=404, detail=f"Thread '{thread_id}' not found")
+            raise HTTPException(status_code=404, detail="Thread not found")
+
+        # Filter state to only expose safe fields (messages + metadata)
+        values = state.values or {}
+        safe_messages = []
+        for msg in values.get("messages", []):
+            if isinstance(msg, dict):
+                safe_messages.append(
+                    {
+                        "role": msg.get("role", "unknown"),
+                        "content": msg.get("content", ""),
+                        "name": msg.get("name"),
+                    }
+                )
+            elif hasattr(msg, "content"):
+                safe_messages.append(
+                    {
+                        "role": getattr(msg, "type", "unknown"),
+                        "content": str(msg.content),
+                        "name": getattr(msg, "name", None),
+                    }
+                )
 
         return {
             "thread_id": thread_id,
-            "values": state.values,
+            "values": {"messages": safe_messages},
             "next": state.next,
         }
 

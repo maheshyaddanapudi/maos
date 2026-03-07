@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 import httpx
 import structlog
 
+from maos.a2a.discovery import _is_internal_url
 from maos.a2a.models import (
     A2AConfiguration,
     A2AMessage,
@@ -38,7 +39,7 @@ class A2AClient:
     async def _ensure_client(self) -> httpx.AsyncClient:
         """Ensure HTTP client is available."""
         if self._http_client is None:
-            self._http_client = httpx.AsyncClient(timeout=self._timeout)
+            self._http_client = httpx.AsyncClient(timeout=self._timeout, follow_redirects=False)
         return self._http_client
 
     async def send_message(
@@ -55,6 +56,13 @@ class A2AClient:
         Returns:
             A2A response.
         """
+        if _is_internal_url(agent.endpoint):
+            logger.warning("ssrf_blocked_a2a_endpoint", endpoint=agent.endpoint)
+            return A2AResponse(
+                id=str(uuid.uuid4()),
+                error={"code": -32001, "message": "Blocked request to internal endpoint"},
+            )
+
         client = await self._ensure_client()
 
         request_id = str(uuid.uuid4())
@@ -124,6 +132,10 @@ class A2AClient:
         Yields:
             Response chunks.
         """
+        if _is_internal_url(agent.endpoint):
+            logger.warning("ssrf_blocked_a2a_endpoint", endpoint=agent.endpoint)
+            return
+
         if not agent.card.capabilities.streaming:
             # Fall back to non-streaming
             response = await self.send_message(agent, message, timeout)
@@ -185,6 +197,10 @@ class A2AClient:
         Returns:
             Task status if found.
         """
+        if _is_internal_url(agent.endpoint):
+            logger.warning("ssrf_blocked_a2a_endpoint", endpoint=agent.endpoint)
+            return None
+
         client = await self._ensure_client()
 
         request = {

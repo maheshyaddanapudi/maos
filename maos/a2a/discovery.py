@@ -22,9 +22,9 @@ _BLOCKED_IPV4_PREFIXES = (
 
 # IPv6 prefixes (urlparse strips brackets, so hostname is e.g. "::1", "fc00::1")
 _BLOCKED_IPV6_PREFIXES = (
-    "::1",    # Loopback
-    "fc",     # Unique local fc00::/7
-    "fd",     # Unique local fc00::/7
+    "::1",  # Loopback
+    "fc",  # Unique local fc00::/7
+    "fd",  # Unique local fc00::/7
     "fe80:",  # Link-local
 )
 
@@ -98,7 +98,10 @@ class A2ADiscovery:
 
         # Create client if needed
         if self._http_client is None:
-            self._http_client = httpx.AsyncClient(timeout=config.discovery.timeout_seconds, follow_redirects=False)
+            self._http_client = httpx.AsyncClient(
+                timeout=config.discovery.timeout_seconds,
+                follow_redirects=False,
+            )
 
         try:
             # Discover agents from all seeds
@@ -207,6 +210,11 @@ class A2ADiscovery:
         if not endpoint:
             # Derive from card URL
             endpoint = card_url.rsplit("/.well-known", 1)[0]
+
+        # Validate endpoint against SSRF
+        if _is_internal_url(endpoint):
+            logger.warning("ssrf_blocked_agent_endpoint", endpoint=endpoint)
+            return None
 
         return DiscoveredAgent(
             card=card,

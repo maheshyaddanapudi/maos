@@ -8,6 +8,8 @@ from typing import TypeVar
 
 import structlog
 
+from maos.errors import MAOSCircuitBreakerError
+
 logger = structlog.get_logger()
 
 T = TypeVar("T")
@@ -150,16 +152,11 @@ class CircuitBreaker:
             current = self.state
 
             if current == "open":
-                raise RuntimeError(
-                    f"Circuit breaker '{self._name}' is open"
-                )
+                raise MAOSCircuitBreakerError(self._name)
 
             if current == "half_open":
                 if self._half_open_calls >= self._half_open_max_calls:
-                    raise RuntimeError(
-                        f"Circuit breaker '{self._name}' "
-                        f"half-open limit reached"
-                    )
+                    raise MAOSCircuitBreakerError(self._name)
                 self._half_open_calls += 1
 
         try:

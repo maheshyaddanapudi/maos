@@ -85,7 +85,9 @@ class TestTool:
         """Test calling a tool without an invoke function raises RuntimeError."""
         tool = self._make_tool()
 
-        with pytest.raises(RuntimeError, match="not connected"):
+        from maos.errors import MAOSToolError
+
+        with pytest.raises(MAOSToolError, match="not connected"):
             await tool.call({"input": "test"})
 
     def test_tool_to_llm_definition(self):

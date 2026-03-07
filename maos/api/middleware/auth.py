@@ -1,7 +1,8 @@
 """Authentication middleware for MAOS API."""
 
 import structlog
-from fastapi import HTTPException, Request
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -59,9 +60,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if request.client
                 else "unknown",
             )
-            raise HTTPException(
+            return JSONResponse(
                 status_code=401,
-                detail="Missing authorization",
+                content={"detail": "Missing authorization"},
             )
 
         scheme, _, token = auth_header.partition(" ")
@@ -74,9 +75,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if request.client
                 else "unknown",
             )
-            raise HTTPException(
+            return JSONResponse(
                 status_code=403,
-                detail="Invalid credentials",
+                content={"detail": "Invalid credentials"},
             )
 
         return await call_next(request)

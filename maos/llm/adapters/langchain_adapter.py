@@ -82,6 +82,10 @@ class LangChainAdapter(LLMAdapter):
         """
         self._chat_model = chat_model
         self._config = config
+        self._total_tokens_used: dict[str, int] = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+        }
 
     async def invoke(
         self, messages: list[Message], tools: list[ToolDefinition] | None = None, **kwargs: Any
@@ -116,11 +120,15 @@ class LangChainAdapter(LLMAdapter):
         # Extract usage if available
         usage = {}
         if hasattr(response, "usage_metadata") and response.usage_metadata:
+            input_tok = response.usage_metadata.get("input_tokens", 0)
+            output_tok = response.usage_metadata.get("output_tokens", 0)
             usage = {
-                "prompt_tokens": response.usage_metadata.get("input_tokens", 0),
-                "completion_tokens": response.usage_metadata.get("output_tokens", 0),
+                "prompt_tokens": input_tok,
+                "completion_tokens": output_tok,
                 "total_tokens": response.usage_metadata.get("total_tokens", 0),
             }
+            self._total_tokens_used["input_tokens"] += input_tok
+            self._total_tokens_used["output_tokens"] += output_tok
 
         return LLMResponse(
             content=response.content if isinstance(response.content, str) else "",
@@ -152,11 +160,7 @@ class LangChainAdapter(LLMAdapter):
         )
 
         async for chunk in astream:
-            content = (
-                chunk.content
-                if isinstance(chunk.content, str)
-                else ""
-            )
+            content = chunk.content if isinstance(chunk.content, str) else ""
             yield LLMChunk(
                 content=content,
                 tool_calls=None,
@@ -174,6 +178,19 @@ class LangChainAdapter(LLMAdapter):
     def get_model_name(self) -> str:
         """Get the model name."""
         return self._config.model
+
+    def get_usage_stats(self) -> dict[str, int]:
+        """Return accumulated token usage stats.
+
+        Returns:
+            Dict with input_tokens and output_tokens counts.
+        """
+        return dict(self._total_tokens_used)
+
+    def reset_usage_stats(self) -> None:
+        """Reset accumulated token usage counters to zero."""
+        self._total_tokens_used["input_tokens"] = 0
+        self._total_tokens_used["output_tokens"] = 0
 
     @property
     def chat_model(self) -> BaseChatModel:

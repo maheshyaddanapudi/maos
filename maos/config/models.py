@@ -27,6 +27,10 @@ class LLMConfig(BaseModel):
     api_key_env: str | None = None
     base_url: str | None = None
     timeout_seconds: int = Field(default=60, ge=1)
+    fallback_models: list[str] = Field(
+        default_factory=list,
+        description="Fallback model names to try if primary fails",
+    )
 
 
 class MCPServerConfig(BaseModel):
@@ -209,10 +213,7 @@ class APISecurityConfig(BaseModel):
     auth_enabled: bool = False
     api_key_env: str | None = Field(
         default=None,
-        description=(
-            "Environment variable containing comma-separated"
-            " API keys"
-        ),
+        description=("Environment variable containing comma-separated API keys"),
     )
     rate_limit_enabled: bool = False
     rate_limit_rpm: int = Field(
@@ -253,9 +254,7 @@ class ServingConfig(BaseModel):
 
     api: APIConfig = Field(default_factory=APIConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
-    security: APISecurityConfig = Field(
-        default_factory=APISecurityConfig
-    )
+    security: APISecurityConfig = Field(default_factory=APISecurityConfig)
 
 
 class Config(BaseModel):

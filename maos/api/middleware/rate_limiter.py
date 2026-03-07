@@ -5,7 +5,8 @@ import time
 from collections import defaultdict
 
 import structlog
-from fastapi import HTTPException, Request
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -79,9 +80,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 client=client_id,
                 path=request.url.path,
             )
-            raise HTTPException(
+            return JSONResponse(
                 status_code=429,
-                detail="Rate limit exceeded",
+                content={"detail": "Rate limit exceeded"},
                 headers={"Retry-After": "60"},
             )
 

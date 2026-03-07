@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from maos.errors import MAOSToolError, MAOSToolTimeoutError
+
 
 class JsonSchema(BaseModel):
     """JSON Schema for tool input validation."""
@@ -50,17 +52,14 @@ class Tool(BaseModel):
             RuntimeError: If tool is not connected.
         """
         if self._invoke_fn is None:
-            raise RuntimeError(f"Tool {self.id} not connected")
+            raise MAOSToolError(f"Tool {self.id} not connected")
         try:
             return await asyncio.wait_for(
                 self._invoke_fn(arguments),
                 timeout=self.timeout_seconds,
             )
         except TimeoutError:
-            raise RuntimeError(
-                f"Tool {self.id} timed out "
-                f"after {self.timeout_seconds}s"
-            )
+            raise MAOSToolTimeoutError(self.id, self.timeout_seconds)
 
     def to_llm_definition(self) -> dict[str, Any]:
         """Convert to LLM tool definition format."""

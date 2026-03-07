@@ -100,9 +100,7 @@ async def trace_operation(
             error=str(e),
         )
         if context:
-            context.add_span(
-                name, duration_ms, {"error": str(e)}
-            )
+            context.add_span(name, duration_ms, {"error": str(e)})
         raise
     else:
         duration_ms = (time.monotonic() - start) * 1000
@@ -112,3 +110,74 @@ async def trace_operation(
         )
         if context:
             context.add_span(name, duration_ms)
+
+
+class CostTracker:
+    """Tracks token usage and estimated costs."""
+
+    # Approximate costs per 1M tokens (USD)
+    MODEL_COSTS: dict[str, dict[str, float]] = {
+        "gpt-4o": {"input": 2.50, "output": 10.00},
+        "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+        "claude-sonnet-4-20250514": {
+            "input": 3.00,
+            "output": 15.00,
+        },
+        "claude-haiku-4-5-20251001": {
+            "input": 0.80,
+            "output": 4.00,
+        },
+        "claude-opus-4-20250514": {
+            "input": 15.00,
+            "output": 75.00,
+        },
+    }
+
+    def __init__(self) -> None:
+        self._usage: dict[str, dict[str, int]] = {}
+
+    def record(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        """Record token usage for a model invocation.
+
+        Args:
+            model: Model name.
+            input_tokens: Number of input tokens used.
+            output_tokens: Number of output tokens used.
+        """
+        if model not in self._usage:
+            self._usage[model] = {"input": 0, "output": 0}
+        self._usage[model]["input"] += input_tokens
+        self._usage[model]["output"] += output_tokens
+
+    def get_total_cost(self) -> float:
+        """Calculate total estimated cost in USD.
+
+        Returns:
+            Estimated total cost rounded to 6 decimal places.
+        """
+        total = 0.0
+        for model, usage in self._usage.items():
+            costs = self.MODEL_COSTS.get(model, {"input": 5.0, "output": 15.0})
+            total += (usage["input"] / 1_000_000) * costs["input"]
+            total += (usage["output"] / 1_000_000) * costs["output"]
+        return round(total, 6)
+
+    def get_usage_summary(self) -> dict:
+        """Get a summary of usage by model and total cost.
+
+        Returns:
+            Dict with by_model breakdown and total_cost_usd.
+        """
+        return {
+            "by_model": dict(self._usage),
+            "total_cost_usd": self.get_total_cost(),
+        }
+
+    def reset(self) -> None:
+        """Reset all tracked usage data."""
+        self._usage.clear()

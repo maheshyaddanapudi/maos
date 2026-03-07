@@ -355,7 +355,8 @@ This one integration addresses priorities 1, 7, 12, 14, and 17 from the quick-wi
 |-------|-------|----------|-------|-----------|
 | v1 | Architecture analysis, module status | 147 gaps across 8 categories | 22 (round 1 fixes) | Rolled into v2 |
 | v2 | Gap analysis, competitive comparison, security | 20 specific findings + code review | 20 (commit 6964a35) | Rolled into v3 |
-| v3 | Competitive landscape, security audit, compliance | 16 new security + strategic gaps | Pending | See §7 above |
+| v3 | Competitive landscape, security audit, compliance | 16 new security + strategic gaps | 19 fixed (commits 0ab5824, 2053d00) | 3 Low (non-blocking) |
+| v3+ | Post-fix audit | 6 additional findings (2 HIGH, 4 MEDIUM) | 6 fixed (commit 2053d00) | 0 |
 
 ### What's Been Fixed (Cumulative)
 
@@ -371,27 +372,43 @@ This one integration addresses priorities 1, 7, 12, 14, and 17 from the quick-wi
 - Error sanitization in API responses
 - Dockerfile added
 
+#### Security Fixes — Round 3 (All 19 findings fixed)
+- S3-01/02: Error messages sanitized in graph factory (no raw exceptions to LLM context)
+- S3-03/09: A2A host + CLI serve default to `127.0.0.1` (not `0.0.0.0`)
+- S3-05/06: thread_id + run_id validation across all route endpoints
+- S3-07: User-supplied names removed from error responses
+- S3-08: Security config overrides via env vars blocked (not just warned)
+- S3-10: CORS methods/headers restricted to explicit whitelist
+- S3-11: SSRF protection for A2A discovery (private IPs + cloud metadata blocked)
+- S3-12: SSE streams filter raw LangGraph state (only safe message fields exposed)
+- S3-13: Auth enabled by default (secure-by-default)
+- NEW-H1: Non-message SSE chunks filtered (was leaking raw graph state)
+- NEW-H2: AuthConfig middleware default aligned to True + startup warning on empty keys
+- NEW-M1: resume_chat thread_id validation added
+- NEW-M2: create_thread thread_id validation added
+- NEW-M3: httpx redirect following disabled in A2A discovery (SSRF via redirect)
+- NEW-M4: agent_name path parameter validation added
+
 #### Code Quality
 - Ruff lint: 805 errors → 0
 - Test suite: 175 → 432 tests
-- Coverage: 43% → 56%
+- Coverage: 43% → 55%
 - All async compliance verified
 - All Pydantic v2 conventions followed
 
 ### What's Still Open
 
-#### Security (16 new findings from v3)
-- 3 High: Error leakage in graph factory (2), A2A host binding
-- 5 Medium: Tenant isolation, thread_id validation, path params, agent name reflection, env override security
-- 5 Low: CLI host default, CORS methods, SSRF in discovery, SSE state leakage, auth default
-- 3 Info: Informational only
+#### Security (3 Low / non-blocking)
+- DNS rebinding in A2A discovery (operator-configured URLs, low risk)
+- Azure-specific metadata hostname not in blocklist (IP is blocked)
+- Module-level mutable dicts in LangGraph Studio (single-threaded async model mitigates)
 
-#### Features (Strategic Gaps)
+#### Features (Strategic Gaps — Roadmap)
 - Memory abstraction (all competitors have this)
 - Guardrails system (config-driven input/output validation)
 - Agent evaluation framework
 - Prompt templating
-- Cost tracking aggregation
+- Cost tracking aggregation (recommend Langfuse integration)
 - Webhook triggers
 - MCP server exposure
 - Visual builder (long-term)

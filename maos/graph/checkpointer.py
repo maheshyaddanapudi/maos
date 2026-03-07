@@ -171,7 +171,12 @@ class ConversationStore:
         self._checkpointer = checkpointer
         self._config = config
 
-    async def list_threads(self, limit: int = 100, offset: int = 0) -> list[dict]:
+    async def list_threads(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        ttl_days: int | None = None,
+    ) -> list[dict]:
         """
         List all thread IDs with metadata.
 
@@ -182,9 +187,13 @@ class ConversationStore:
         Args:
             limit: Maximum number of threads to return.
             offset: Number of threads to skip.
+            ttl_days: If set, only return threads created within
+                this many days. Threads older than the TTL are
+                excluded from results.
 
         Returns:
-            List of thread info dicts with thread_id, last_update, etc.
+            List of thread info dicts with thread_id, last_update,
+            etc.
         """
         threads = []
 
@@ -199,17 +208,30 @@ class ConversationStore:
                 checkpoint = self._checkpointer.get(config)
 
                 if checkpoint:
-                    threads.append(self._extract_thread_info(thread_id, checkpoint))
+                    threads.append(
+                        self._extract_thread_info(
+                            thread_id, checkpoint
+                        )
+                    )
 
         elif self._config.type == "sqlite":
-            threads = await self._list_threads_sqlite(limit, offset)
+            threads = await self._list_threads_sqlite(
+                limit, offset, ttl_days=ttl_days
+            )
 
         elif self._config.type == "postgres":
-            threads = await self._list_threads_postgres(limit, offset)
+            threads = await self._list_threads_postgres(
+                limit, offset, ttl_days=ttl_days
+            )
 
         return threads
 
-    async def _list_threads_sqlite(self, limit: int, offset: int) -> list[dict]:
+    async def _list_threads_sqlite(
+        self,
+        limit: int,
+        offset: int,
+        ttl_days: int | None = None,
+    ) -> list[dict]:
         """List threads from SQLite database."""
         import sqlite3
 
@@ -218,21 +240,37 @@ class ConversationStore:
             conn = sqlite3.connect(self._config.sqlite_path)
             cursor = conn.cursor()
 
-            # Query distinct thread_ids with latest checkpoint
-            cursor.execute(
-                """
+            query = """
                 SELECT DISTINCT
-                    json_extract(config, '$.configurable.thread_id') as thread_id,
+                    json_extract(
+                        config,
+                        '$.configurable.thread_id'
+                    ) as thread_id,
                     MAX(checkpoint_id) as latest_checkpoint,
                     MAX(created_at) as last_update
                 FROM checkpoints
-                WHERE json_extract(config, '$.configurable.thread_id') IS NOT NULL
+                WHERE json_extract(
+                    config,
+                    '$.configurable.thread_id'
+                ) IS NOT NULL
+            """
+            params: list[int | str] = []
+
+            if ttl_days is not None:
+                query += (
+                    " AND created_at >= datetime("
+                    "'now', '-' || ? || ' days')"
+                )
+                params.append(ttl_days)
+
+            query += """
                 GROUP BY thread_id
                 ORDER BY last_update DESC
                 LIMIT ? OFFSET ?
-            """,
-                (limit, offset),
-            )
+            """
+            params.extend([limit, offset])
+
+            cursor.execute(query, params)
 
             for row in cursor.fetchall():
                 thread_id, checkpoint_id, last_update = row
@@ -248,11 +286,18 @@ class ConversationStore:
             conn.close()
 
         except Exception as e:
-            logger.error("list_threads_sqlite_error", error=str(e))
+            logger.error(
+                "list_threads_sqlite_error", error=str(e)
+            )
 
         return threads
 
-    async def _list_threads_postgres(self, limit: int, offset: int) -> list[dict]:
+    async def _list_threads_postgres(
+        self,
+        limit: int,
+        offset: int,
+        ttl_days: int | None = None,
+    ) -> list[dict]:
         """List threads from PostgreSQL database."""
         try:
             import psycopg2
@@ -268,20 +313,31 @@ class ConversationStore:
             conn = psycopg2.connect(uri)
             cursor = conn.cursor()
 
-            cursor.execute(
-                """
+            query = """
                 SELECT DISTINCT
                     thread_id,
                     MAX(checkpoint_id) as latest_checkpoint,
                     MAX(created_at) as last_update
                 FROM checkpoints
                 WHERE thread_id IS NOT NULL
+            """
+            params: list[int] = []
+
+            if ttl_days is not None:
+                query += (
+                    " AND created_at >= NOW()"
+                    " - INTERVAL '%s days'"
+                )
+                params.append(ttl_days)
+
+            query += """
                 GROUP BY thread_id
                 ORDER BY last_update DESC
                 LIMIT %s OFFSET %s
-            """,
-                (limit, offset),
-            )
+            """
+            params.extend([limit, offset])
+
+            cursor.execute(query, params)
 
             threads = []
             for row in cursor.fetchall():
@@ -291,7 +347,11 @@ class ConversationStore:
                         {
                             "thread_id": thread_id,
                             "checkpoint_id": checkpoint_id,
-                            "last_update": str(last_update) if last_update else None,
+                            "last_update": (
+                                str(last_update)
+                                if last_update
+                                else None
+                            ),
                         }
                     )
 
@@ -302,11 +362,17 @@ class ConversationStore:
         except ImportError:
             logger.warning(
                 "psycopg2_not_installed",
-                message="Install psycopg2-binary for PostgreSQL support",
+                message=(
+                    "Install psycopg2-binary for"
+                    " PostgreSQL support"
+                ),
             )
             return []
         except Exception as e:
-            logger.error("list_threads_postgres_error", error=str(e))
+            logger.error(
+                "list_threads_postgres_error",
+                error=str(e),
+            )
             return []
 
     async def get_thread_messages(self, thread_id: str) -> list[dict]:

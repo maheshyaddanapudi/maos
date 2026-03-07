@@ -1,18 +1,12 @@
 """Unit tests for API module."""
 
 import pytest
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from fastapi.testclient import TestClient
 
 from maos.api.models import (
     AgentInfo,
-    AgentListResponse,
     ChatRequest,
     ChatResponse,
     ComponentHealth,
-    ErrorResponse,
     HealthResponse,
     HealthStatus,
     InputRequiredResponse,
@@ -22,13 +16,13 @@ from maos.api.models import (
     OpenAIChatResponse,
     OpenAIMessage,
     ResumeRequest,
-    StreamEvent,
     StreamEventType,
     WorkerResultInfo,
 )
-from maos.api.streaming import format_sse_event, create_stream_event
+from maos.api.streaming import create_stream_event, format_sse_event
 
 
+@pytest.mark.unit
 class TestMessage:
     """Tests for Message model."""
 
@@ -40,22 +34,17 @@ class TestMessage:
 
     def test_message_with_name(self):
         """Test message with name."""
-        msg = Message(
-            role=MessageRole.ASSISTANT,
-            content="Response",
-            name="worker1"
-        )
+        msg = Message(role=MessageRole.ASSISTANT, content="Response", name="worker1")
         assert msg.name == "worker1"
 
 
+@pytest.mark.unit
 class TestChatRequest:
     """Tests for ChatRequest model."""
 
     def test_minimal_request(self):
         """Test minimal chat request."""
-        request = ChatRequest(
-            messages=[Message(role=MessageRole.USER, content="Hello")]
-        )
+        request = ChatRequest(messages=[Message(role=MessageRole.USER, content="Hello")])
         assert len(request.messages) == 1
         assert not request.stream
 
@@ -64,7 +53,7 @@ class TestChatRequest:
         request = ChatRequest(
             messages=[Message(role=MessageRole.USER, content="Hello")],
             stream=True,
-            thread_id="test-123"
+            thread_id="test-123",
         )
         assert request.stream
         assert request.thread_id == "test-123"
@@ -75,6 +64,7 @@ class TestChatRequest:
             ChatRequest(messages=[])
 
 
+@pytest.mark.unit
 class TestChatResponse:
     """Tests for ChatResponse model."""
 
@@ -84,38 +74,35 @@ class TestChatResponse:
             thread_id="thread-1",
             messages=[Message(role=MessageRole.ASSISTANT, content="Hi")],
             final_response="Hi",
-            iterations=1
+            iterations=1,
         )
         assert response.done
         assert response.iterations == 1
 
 
+@pytest.mark.unit
 class TestInputRequiredResponse:
     """Tests for InputRequiredResponse model."""
 
     def test_input_required(self):
         """Test input required response."""
-        response = InputRequiredResponse(
-            thread_id="thread-1",
-            prompt="What is your name?"
-        )
+        response = InputRequiredResponse(thread_id="thread-1", prompt="What is your name?")
         assert response.input_required
         assert response.prompt == "What is your name?"
 
 
+@pytest.mark.unit
 class TestResumeRequest:
     """Tests for ResumeRequest model."""
 
     def test_resume_request(self):
         """Test resume request."""
-        request = ResumeRequest(
-            thread_id="thread-1",
-            input="My name is Alice"
-        )
+        request = ResumeRequest(thread_id="thread-1", input="My name is Alice")
         assert request.thread_id == "thread-1"
         assert request.input == "My name is Alice"
 
 
+@pytest.mark.unit
 class TestHealthResponse:
     """Tests for HealthResponse model."""
 
@@ -127,9 +114,9 @@ class TestHealthResponse:
                 ComponentHealth(
                     name="llm_registry",
                     status=HealthStatus.HEALTHY,
-                    message="2 adapters registered"
+                    message="2 adapters registered",
                 )
-            ]
+            ],
         )
         assert response.status == HealthStatus.HEALTHY
 
@@ -141,44 +128,38 @@ class TestHealthResponse:
                 ComponentHealth(
                     name="mcp_registry",
                     status=HealthStatus.DEGRADED,
-                    message="1/2 servers connected"
+                    message="1/2 servers connected",
                 )
-            ]
+            ],
         )
         assert response.status == HealthStatus.DEGRADED
 
 
+@pytest.mark.unit
 class TestAgentInfo:
     """Tests for AgentInfo model."""
 
     def test_supervisor_info(self):
         """Test supervisor agent info."""
-        info = AgentInfo(
-            name="supervisor",
-            kind="supervisor",
-            description="Routes tasks"
-        )
+        info = AgentInfo(name="supervisor", kind="supervisor", description="Routes tasks")
         assert info.kind == "supervisor"
 
     def test_worker_info(self):
         """Test worker agent info."""
         info = AgentInfo(
-            name="researcher",
-            kind="native_worker",
-            llm="default",
-            tools=["search", "read"]
+            name="researcher", kind="native_worker", llm="default", tools=["search", "read"]
         )
         assert len(info.tools) == 2
 
 
+@pytest.mark.unit
 class TestOpenAIModels:
     """Tests for OpenAI-compatible models."""
 
     def test_openai_chat_request(self):
         """Test OpenAI chat request."""
         request = OpenAIChatRequest(
-            model="maos",
-            messages=[OpenAIMessage(role="user", content="Hello")]
+            model="maos", messages=[OpenAIMessage(role="user", content="Hello")]
         )
         assert request.model == "maos"
         assert not request.stream
@@ -189,11 +170,12 @@ class TestOpenAIModels:
             id="chatcmpl-123",
             created=1234567890,
             choices=[],
-            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         )
         assert response.object == "chat.completion"
 
 
+@pytest.mark.unit
 class TestStreamingHelpers:
     """Tests for streaming helper functions."""
 
@@ -208,26 +190,20 @@ class TestStreamingHelpers:
 
     def test_create_stream_event(self):
         """Test creating stream event."""
-        event = create_stream_event(
-            StreamEventType.CHUNK,
-            {"content": "Test"}
-        )
+        event = create_stream_event(StreamEventType.CHUNK, {"content": "Test"})
 
         assert event.event == StreamEventType.CHUNK
         assert event.data["content"] == "Test"
         assert event.timestamp is not None
 
 
+@pytest.mark.unit
 class TestWorkerResultInfo:
     """Tests for WorkerResultInfo model."""
 
     def test_basic_result(self):
         """Test basic worker result info."""
-        result = WorkerResultInfo(
-            from_agent="worker1",
-            content="Task completed",
-            duration_ms=100
-        )
+        result = WorkerResultInfo(from_agent="worker1", content="Task completed", duration_ms=100)
         assert result.from_agent == "worker1"
         assert result.result_type == "text"
 
@@ -244,13 +220,14 @@ class TestWorkerResultInfo:
                     tool_name="search",
                     input_args={"query": "test"},
                     output={"results": []},
-                    success=True
+                    success=True,
                 )
-            ]
+            ],
         )
         assert len(result.tool_calls) == 1
 
 
+@pytest.mark.unit
 class TestStreamEventType:
     """Tests for StreamEventType enum."""
 

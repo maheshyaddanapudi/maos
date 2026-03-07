@@ -7,7 +7,6 @@ This module creates the appropriate checkpointer based on configuration:
 """
 
 import os
-from typing import Optional, Any
 
 import structlog
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -191,10 +190,10 @@ class ConversationStore:
 
         if self._config.type == "memory":
             # MemorySaver stores in self.storage dict
-            storage = getattr(self._checkpointer, 'storage', {})
+            storage = getattr(self._checkpointer, "storage", {})
             thread_ids = list(storage.keys())
 
-            for thread_id in thread_ids[offset:offset + limit]:
+            for thread_id in thread_ids[offset : offset + limit]:
                 # Get latest checkpoint
                 config = {"configurable": {"thread_id": thread_id}}
                 checkpoint = self._checkpointer.get(config)
@@ -220,7 +219,8 @@ class ConversationStore:
             cursor = conn.cursor()
 
             # Query distinct thread_ids with latest checkpoint
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT DISTINCT
                     json_extract(config, '$.configurable.thread_id') as thread_id,
                     MAX(checkpoint_id) as latest_checkpoint,
@@ -230,16 +230,20 @@ class ConversationStore:
                 GROUP BY thread_id
                 ORDER BY last_update DESC
                 LIMIT ? OFFSET ?
-            """, (limit, offset))
+            """,
+                (limit, offset),
+            )
 
             for row in cursor.fetchall():
                 thread_id, checkpoint_id, last_update = row
                 if thread_id:
-                    threads.append({
-                        "thread_id": thread_id,
-                        "checkpoint_id": checkpoint_id,
-                        "last_update": last_update,
-                    })
+                    threads.append(
+                        {
+                            "thread_id": thread_id,
+                            "checkpoint_id": checkpoint_id,
+                            "last_update": last_update,
+                        }
+                    )
 
             conn.close()
 
@@ -250,10 +254,60 @@ class ConversationStore:
 
     async def _list_threads_postgres(self, limit: int, offset: int) -> list[dict]:
         """List threads from PostgreSQL database."""
-        # Similar query but using PostgreSQL JSONB syntax
-        # Implementation depends on actual schema
-        logger.warning("list_threads_postgres not fully implemented")
-        return []
+        try:
+            import psycopg2
+
+            uri = self._config.postgres_uri
+            if not uri and self._config.postgres_uri_env:
+                uri = os.environ.get(self._config.postgres_uri_env)
+
+            if not uri:
+                logger.warning("postgres_uri_not_configured")
+                return []
+
+            conn = psycopg2.connect(uri)
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT DISTINCT
+                    thread_id,
+                    MAX(checkpoint_id) as latest_checkpoint,
+                    MAX(created_at) as last_update
+                FROM checkpoints
+                WHERE thread_id IS NOT NULL
+                GROUP BY thread_id
+                ORDER BY last_update DESC
+                LIMIT %s OFFSET %s
+            """,
+                (limit, offset),
+            )
+
+            threads = []
+            for row in cursor.fetchall():
+                thread_id, checkpoint_id, last_update = row
+                if thread_id:
+                    threads.append(
+                        {
+                            "thread_id": thread_id,
+                            "checkpoint_id": checkpoint_id,
+                            "last_update": str(last_update) if last_update else None,
+                        }
+                    )
+
+            cursor.close()
+            conn.close()
+            return threads
+
+        except ImportError:
+            logger.warning(
+                "psycopg2_not_installed",
+                message="Install psycopg2-binary for PostgreSQL support",
+            )
+            return []
+        except Exception as e:
+            logger.error("list_threads_postgres_error", error=str(e))
+            return []
 
     async def get_thread_messages(self, thread_id: str) -> list[dict]:
         """
@@ -267,7 +321,7 @@ class ConversationStore:
         """
         config = {"configurable": {"thread_id": thread_id}}
 
-        if hasattr(self._checkpointer, 'aget'):
+        if hasattr(self._checkpointer, "aget"):
             checkpoint = await self._checkpointer.aget(config)
         else:
             checkpoint = self._checkpointer.get(config)
@@ -281,7 +335,7 @@ class ConversationStore:
 
         return self._serialize_messages(messages)
 
-    async def get_thread_state(self, thread_id: str) -> Optional[dict]:
+    async def get_thread_state(self, thread_id: str) -> dict | None:
         """
         Get the full state for a thread.
 
@@ -293,7 +347,7 @@ class ConversationStore:
         """
         config = {"configurable": {"thread_id": thread_id}}
 
-        if hasattr(self._checkpointer, 'aget'):
+        if hasattr(self._checkpointer, "aget"):
             checkpoint = await self._checkpointer.aget(config)
         else:
             checkpoint = self._checkpointer.get(config)
@@ -319,7 +373,7 @@ class ConversationStore:
             True if deleted, False otherwise.
         """
         if self._config.type == "memory":
-            storage = getattr(self._checkpointer, 'storage', {})
+            storage = getattr(self._checkpointer, "storage", {})
             if thread_id in storage:
                 del storage[thread_id]
                 return True
@@ -341,10 +395,13 @@ class ConversationStore:
             conn = sqlite3.connect(self._config.sqlite_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 DELETE FROM checkpoints
                 WHERE json_extract(config, '$.configurable.thread_id') = ?
-            """, (thread_id,))
+            """,
+                (thread_id,),
+            )
 
             deleted = cursor.rowcount > 0
             conn.commit()
@@ -357,8 +414,36 @@ class ConversationStore:
 
     async def _delete_thread_postgres(self, thread_id: str) -> bool:
         """Delete thread from PostgreSQL."""
-        logger.warning("delete_thread_postgres not fully implemented")
-        return False
+        try:
+            import psycopg2
+
+            uri = self._config.postgres_uri
+            if not uri and self._config.postgres_uri_env:
+                uri = os.environ.get(self._config.postgres_uri_env)
+
+            if not uri:
+                return False
+
+            conn = psycopg2.connect(uri)
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "DELETE FROM checkpoints WHERE thread_id = %s",
+                (thread_id,),
+            )
+
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return deleted
+
+        except ImportError:
+            logger.warning("psycopg2_not_installed")
+            return False
+        except Exception as e:
+            logger.error("delete_thread_postgres_error", error=str(e))
+            return False
 
     def _extract_thread_info(self, thread_id: str, checkpoint: dict) -> dict:
         """Extract thread info from a checkpoint."""
@@ -388,15 +473,19 @@ class ConversationStore:
             if hasattr(msg, "type") and hasattr(msg, "content"):
                 # LangChain message object
                 role = "assistant" if msg.type == "ai" else msg.type
-                result.append({
-                    "role": role,
-                    "content": str(msg.content),
-                    "name": getattr(msg, "name", None),
-                })
+                result.append(
+                    {
+                        "role": role,
+                        "content": str(msg.content),
+                        "name": getattr(msg, "name", None),
+                    }
+                )
             elif isinstance(msg, dict):
-                result.append({
-                    "role": msg.get("role", "unknown"),
-                    "content": msg.get("content", ""),
-                    "name": msg.get("name"),
-                })
+                result.append(
+                    {
+                        "role": msg.get("role", "unknown"),
+                        "content": msg.get("content", ""),
+                        "name": msg.get("name"),
+                    }
+                )
         return result

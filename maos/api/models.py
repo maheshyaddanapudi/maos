@@ -1,13 +1,15 @@
 """API request and response models."""
 
-from enum import Enum
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
 from datetime import datetime
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
-class MessageRole(str, Enum):
+class MessageRole(StrEnum):
     """Message role types."""
+
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
@@ -16,75 +18,83 @@ class MessageRole(str, Enum):
 
 class Message(BaseModel):
     """A message in the conversation."""
+
     role: MessageRole
     content: str
-    name: Optional[str] = None
-    tool_calls: Optional[List[Dict[str, Any]]] = None
-    tool_call_id: Optional[str] = None
+    name: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
 
 
 class ChatRequest(BaseModel):
     """Request for /chat endpoint."""
-    messages: List[Message] = Field(..., min_length=1)
-    thread_id: Optional[str] = None
+
+    messages: list[Message] = Field(..., min_length=1)
+    thread_id: str | None = None
     stream: bool = False
-    max_iterations: Optional[int] = None
+    max_iterations: int | None = None
 
     class Config:
         json_schema_extra = {
             "example": {
                 "messages": [{"role": "user", "content": "Hello, how can you help me?"}],
-                "stream": True
+                "stream": True,
             }
         }
 
 
 class ResumeRequest(BaseModel):
     """Request for /chat/resume endpoint."""
+
     thread_id: str = Field(..., description="Thread ID from the interrupted conversation")
     input: str = Field(..., description="User input to resume with")
 
 
 class ToolCallInfo(BaseModel):
     """Information about a tool call."""
+
     tool_id: str
     tool_name: str
-    input_args: Dict[str, Any]
+    input_args: dict[str, Any]
     output: Any = None
     success: bool = True
-    error_message: Optional[str] = None
+    error_message: str | None = None
     duration_ms: int = 0
 
 
 class WorkerResultInfo(BaseModel):
     """Information about a worker result."""
+
     from_agent: str
     content: str
     result_type: str = "text"
-    tool_calls: List[ToolCallInfo] = Field(default_factory=list)
+    tool_calls: list[ToolCallInfo] = Field(default_factory=list)
     duration_ms: int = 0
 
 
 class ChatResponse(BaseModel):
     """Response from /chat endpoint."""
+
     thread_id: str
-    messages: List[Message]
+    messages: list[Message]
     final_response: str
-    worker_results: List[WorkerResultInfo] = Field(default_factory=list)
+    worker_results: list[WorkerResultInfo] = Field(default_factory=list)
     iterations: int = 0
     done: bool = True
 
 
 class InputRequiredResponse(BaseModel):
     """Response when user input is required."""
+
     thread_id: str
     input_required: bool = True
     prompt: str
-    context: Optional[Dict[str, Any]] = None
+    context: dict[str, Any] | None = None
 
 
-class StreamEventType(str, Enum):
+class StreamEventType(StrEnum):
     """Types of streaming events."""
+
     CHUNK = "chunk"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
@@ -98,31 +108,35 @@ class StreamEventType(str, Enum):
 
 class StreamEvent(BaseModel):
     """A streaming event."""
+
     event: StreamEventType
-    data: Dict[str, Any]
-    timestamp: Optional[datetime] = None
+    data: dict[str, Any]
+    timestamp: datetime | None = None
 
 
 class AgentInfo(BaseModel):
     """Information about an available agent."""
+
     name: str
     kind: str
-    description: Optional[str] = None
-    llm: Optional[str] = None
-    framework: Optional[str] = None
-    tools: List[str] = Field(default_factory=list)
-    skills: List[str] = Field(default_factory=list)
+    description: str | None = None
+    llm: str | None = None
+    framework: str | None = None
+    tools: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
 
 
 class AgentListResponse(BaseModel):
     """Response from /agents endpoint."""
-    agents: List[AgentInfo]
-    supervisor: Optional[AgentInfo] = None
-    external_agents: List[AgentInfo] = Field(default_factory=list)
+
+    agents: list[AgentInfo]
+    supervisor: AgentInfo | None = None
+    external_agents: list[AgentInfo] = Field(default_factory=list)
 
 
-class HealthStatus(str, Enum):
+class HealthStatus(StrEnum):
     """Health status values."""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -130,36 +144,40 @@ class HealthStatus(str, Enum):
 
 class ComponentHealth(BaseModel):
     """Health status of a component."""
+
     name: str
     status: HealthStatus
-    message: Optional[str] = None
-    details: Optional[Dict[str, Any]] = None
+    message: str | None = None
+    details: dict[str, Any] | None = None
 
 
 class HealthResponse(BaseModel):
     """Response from /health endpoint."""
+
     status: HealthStatus
     version: str = "0.1.0"
-    components: List[ComponentHealth] = Field(default_factory=list)
+    components: list[ComponentHealth] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
 class ErrorResponse(BaseModel):
     """Error response."""
+
     error: str
     message: str
-    details: Optional[Dict[str, Any]] = None
-    thread_id: Optional[str] = None
+    details: dict[str, Any] | None = None
+    thread_id: str | None = None
 
 
 # OpenAI-compatible models
 class OpenAIMessage(BaseModel):
     """OpenAI-compatible message format."""
+
     role: str
     content: str
-    name: Optional[str] = None
-    tool_calls: Optional[List[Dict[str, Any]]] = None
-    tool_call_id: Optional[str] = None
+    name: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
 
 
 class OpenAIChatRequest(BaseModel):
@@ -167,23 +185,25 @@ class OpenAIChatRequest(BaseModel):
 
     Extended with thread_id for conversation continuity and interrupt handling.
     """
+
     model: str = "maos"
-    messages: List[OpenAIMessage]
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
+    messages: list[OpenAIMessage]
+    temperature: float | None = None
+    max_tokens: int | None = None
     stream: bool = False
-    tools: Optional[List[Dict[str, Any]]] = None
-    tool_choice: Optional[str] = None
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: str | None = None
     # MAOS extension: thread_id for conversation continuity
-    thread_id: Optional[str] = Field(
+    thread_id: str | None = Field(
         None,
         description="Thread ID for conversation continuity. If provided and a paused "
-                    "conversation exists, the last user message will resume the conversation."
+        "conversation exists, the last user message will resume the conversation.",
     )
 
 
 class OpenAIChoice(BaseModel):
     """OpenAI-compatible choice."""
+
     index: int = 0
     message: OpenAIMessage
     finish_reason: str = "stop"
@@ -191,6 +211,7 @@ class OpenAIChoice(BaseModel):
 
 class OpenAIUsage(BaseModel):
     """OpenAI-compatible usage info."""
+
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
@@ -201,135 +222,148 @@ class OpenAIChatResponse(BaseModel):
 
     Extended with thread_id and input_pending for interrupt handling.
     """
+
     id: str
     object: str = "chat.completion"
     created: int
     model: str = "maos"
-    choices: List[OpenAIChoice]
+    choices: list[OpenAIChoice]
     usage: OpenAIUsage = Field(default_factory=OpenAIUsage)
     # MAOS extensions for conversation continuity
-    thread_id: Optional[str] = Field(
-        None,
-        description="Thread ID for continuing this conversation"
-    )
+    thread_id: str | None = Field(None, description="Thread ID for continuing this conversation")
     input_pending: bool = Field(
         default=False,
         description="If true, the assistant is waiting for user input to continue. "
-                    "Send the next message with the same thread_id to resume."
+        "Send the next message with the same thread_id to resume.",
     )
 
 
 class OpenAIStreamDelta(BaseModel):
     """OpenAI-compatible stream delta."""
-    role: Optional[str] = None
-    content: Optional[str] = None
+
+    role: str | None = None
+    content: str | None = None
 
 
 class OpenAIStreamChoice(BaseModel):
     """OpenAI-compatible stream choice."""
+
     index: int = 0
     delta: OpenAIStreamDelta
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 class OpenAIStreamChunk(BaseModel):
     """OpenAI-compatible stream chunk."""
+
     id: str
     object: str = "chat.completion.chunk"
     created: int
     model: str = "maos"
-    choices: List[OpenAIStreamChoice]
+    choices: list[OpenAIStreamChoice]
 
 
 # =============================================================================
 # LangGraph Studio API Models
 # =============================================================================
 
+
 class AssistantConfig(BaseModel):
     """Configuration for an assistant."""
-    configurable: Dict[str, Any] = Field(default_factory=dict)
+
+    configurable: dict[str, Any] = Field(default_factory=dict)
 
 
 class Assistant(BaseModel):
     """LangGraph Studio assistant."""
+
     assistant_id: str
     graph_id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     config: AssistantConfig = Field(default_factory=AssistantConfig)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
     updated_at: str
 
 
 class AssistantCreate(BaseModel):
     """Request to create an assistant."""
+
     graph_id: str = "maos"
-    name: Optional[str] = None
-    description: Optional[str] = None
-    config: Optional[AssistantConfig] = None
-    metadata: Optional[Dict[str, Any]] = None
+    name: str | None = None
+    description: str | None = None
+    config: AssistantConfig | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class AssistantSearch(BaseModel):
     """Request to search assistants."""
-    graph_id: Optional[str] = None
-    name: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+
+    graph_id: str | None = None
+    name: str | None = None
+    metadata: dict[str, Any] | None = None
     limit: int = 100
     offset: int = 0
 
 
 class Thread(BaseModel):
     """LangGraph Studio thread."""
+
     thread_id: str
     created_at: str
     updated_at: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     status: str = "idle"  # idle, busy, interrupted, error
 
 
 class ThreadCreate(BaseModel):
     """Request to create a thread."""
-    thread_id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+
+    thread_id: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class ThreadState(BaseModel):
     """State of a thread."""
-    values: Dict[str, Any] = Field(default_factory=dict)
-    next: List[str] = Field(default_factory=list)
-    tasks: List[Dict[str, Any]] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    created_at: Optional[str] = None
-    parent_config: Optional[Dict[str, Any]] = None
+
+    values: dict[str, Any] = Field(default_factory=dict)
+    next: list[str] = Field(default_factory=list)
+    tasks: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+    parent_config: dict[str, Any] | None = None
 
 
 class ThreadStateUpdate(BaseModel):
     """Request to update thread state."""
-    values: Dict[str, Any]
-    as_node: Optional[str] = None
+
+    values: dict[str, Any]
+    as_node: str | None = None
 
 
 class RunConfig(BaseModel):
     """Configuration for a run."""
-    configurable: Dict[str, Any] = Field(default_factory=dict)
+
+    configurable: dict[str, Any] = Field(default_factory=dict)
 
 
 class RunCreate(BaseModel):
     """Request to create a run."""
+
     assistant_id: str
-    input: Optional[Dict[str, Any]] = None
-    config: Optional[RunConfig] = None
-    metadata: Optional[Dict[str, Any]] = None
-    stream_mode: Optional[List[str]] = None  # ["values", "messages", "updates", "events"]
-    interrupt_before: Optional[List[str]] = None
-    interrupt_after: Optional[List[str]] = None
-    multitask_strategy: Optional[str] = None  # "reject", "rollback", "interrupt", "enqueue"
+    input: dict[str, Any] | None = None
+    config: RunConfig | None = None
+    metadata: dict[str, Any] | None = None
+    stream_mode: list[str] | None = None  # ["values", "messages", "updates", "events"]
+    interrupt_before: list[str] | None = None
+    interrupt_after: list[str] | None = None
+    multitask_strategy: str | None = None  # "reject", "rollback", "interrupt", "enqueue"
 
 
-class RunStatus(str, Enum):
+class RunStatus(StrEnum):
     """Status of a run."""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -340,28 +374,22 @@ class RunStatus(str, Enum):
 
 class Run(BaseModel):
     """LangGraph Studio run."""
+
     run_id: str
     thread_id: str
     assistant_id: str
     status: RunStatus
     created_at: str
     updated_at: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class RunOutput(BaseModel):
     """Output from a completed run."""
+
     run_id: str
     thread_id: str
     assistant_id: str
     status: RunStatus
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-
-
-class StreamEvent(BaseModel):
-    """A streaming event."""
-    event: StreamEventType
-    data: Dict[str, Any]
-    timestamp: Optional[datetime] = None
-
+    result: dict[str, Any] | None = None
+    error: str | None = None

@@ -3,7 +3,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -13,6 +13,7 @@ from maos.config.models import Config
 
 class ConfigError(Exception):
     """Configuration-related errors."""
+
     pass
 
 
@@ -82,7 +83,7 @@ class ConfigLoader:
 
         return self._build_config(config_dict)
 
-    def load_from_dict(self, config_dict: Dict[str, Any]) -> Config:
+    def load_from_dict(self, config_dict: dict[str, Any]) -> Config:
         """
         Load configuration from a dictionary.
 
@@ -94,21 +95,21 @@ class ConfigLoader:
         """
         return self._build_config(config_dict)
 
-    def _parse_yaml(self, content: str) -> Dict[str, Any]:
+    def _parse_yaml(self, content: str) -> dict[str, Any]:
         """Parse YAML content."""
         try:
             return yaml.safe_load(content) or {}
         except yaml.YAMLError as e:
             raise ConfigError(f"Invalid YAML: {e}")
 
-    def _parse_json(self, content: str) -> Dict[str, Any]:
+    def _parse_json(self, content: str) -> dict[str, Any]:
         """Parse JSON content."""
         try:
             return json.loads(content)
         except json.JSONDecodeError as e:
             raise ConfigError(f"Invalid JSON: {e}")
 
-    def _build_config(self, config_dict: Dict[str, Any]) -> Config:
+    def _build_config(self, config_dict: dict[str, Any]) -> Config:
         """
         Build and validate configuration from dictionary.
 
@@ -131,7 +132,7 @@ class ConfigLoader:
             for err in e.errors():
                 loc = ".".join(str(x) for x in err["loc"])
                 errors.append(f"  {loc}: {err['msg']}")
-            raise ConfigError(f"Configuration validation failed:\n" + "\n".join(errors))
+            raise ConfigError("Configuration validation failed:\n" + "\n".join(errors))
 
         # Validate cross-references
         ref_errors = config.validate_references()
@@ -142,7 +143,7 @@ class ConfigLoader:
 
         return config
 
-    def _apply_env_overrides(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def _apply_env_overrides(self, config_dict: dict[str, Any]) -> dict[str, Any]:
         """
         Apply environment variable overrides to configuration.
 
@@ -164,7 +165,7 @@ class ConfigLoader:
 
             # Convert env var name to config path
             # MAOS_SERVING_API_HOST -> serving.api.host
-            path_parts = key[len(self._env_prefix):].lower().split("_")
+            path_parts = key[len(self._env_prefix) :].lower().split("_")
 
             # Navigate/create nested dicts
             current = result
@@ -184,7 +185,7 @@ class ConfigLoader:
 
         return result
 
-    def validate(self, config_dict: Dict[str, Any]) -> List[str]:
+    def validate(self, config_dict: dict[str, Any]) -> list[str]:
         """
         Validate configuration dictionary without creating Config object.
 
@@ -205,7 +206,7 @@ class ConfigLoader:
         return errors
 
 
-def load_config(config_path: Optional[str] = None) -> Config:
+def load_config(config_path: str | None = None) -> Config:
     """
     Convenience function to load configuration.
 

@@ -20,8 +20,8 @@ Usage:
     await registry.disconnect_all()
 """
 
-from maos.mcp.registry import MCPRegistry, MCPServerConnection
 from maos.mcp.official_client import MCPToolDefinition
+from maos.mcp.registry import MCPRegistry, MCPServerConnection
 
 __all__ = [
     "MCPRegistry",

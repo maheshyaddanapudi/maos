@@ -12,27 +12,26 @@ Endpoints:
 
 import json
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
-import structlog
 
 from maos.api.models import (
     Assistant,
     AssistantConfig,
     AssistantCreate,
     AssistantSearch,
+    Run,
+    RunCreate,
+    RunStatus,
     Thread,
     ThreadCreate,
     ThreadState,
     ThreadStateUpdate,
-    Run,
-    RunCreate,
-    RunOutput,
-    RunStatus,
 )
 from maos.graph.state import create_initial_state
 
@@ -42,27 +41,26 @@ router = APIRouter(tags=["langgraph-studio"])
 
 
 # In-memory stores (in production, use persistent storage)
-_assistants: Dict[str, Assistant] = {}
-_threads: Dict[str, Thread] = {}
-_runs: Dict[str, Run] = {}
+_assistants: dict[str, Assistant] = {}
+_threads: dict[str, Thread] = {}
+_runs: dict[str, Run] = {}
 
 
-def get_app_context() -> Dict[str, Any]:
+def get_app_context() -> dict[str, Any]:
     """Get application context - to be overridden by dependency injection."""
     return {}
 
 
 def _now_iso() -> str:
     """Get current time as ISO string."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
-def _init_default_assistant(context: Dict[str, Any]) -> None:
+def _init_default_assistant(context: dict[str, Any]) -> None:
     """Initialize default assistant from MAOS config."""
     if "default" in _assistants:
         return
 
-    config = context.get("config")
     description = "MAOS Multi-Agent Orchestration System"
 
     _assistants["default"] = Assistant(
@@ -73,7 +71,7 @@ def _init_default_assistant(context: Dict[str, Any]) -> None:
         config=AssistantConfig(),
         metadata={"auto_created": True},
         created_at=_now_iso(),
-        updated_at=_now_iso()
+        updated_at=_now_iso(),
     )
 
 
@@ -81,10 +79,9 @@ def _init_default_assistant(context: Dict[str, Any]) -> None:
 # Assistants Endpoints
 # =============================================================================
 
-@router.get("/assistants", response_model=List[Assistant])
-async def list_assistants(
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> List[Assistant]:
+
+@router.get("/assistants", response_model=list[Assistant])
+async def list_assistants(context: dict[str, Any] = Depends(get_app_context)) -> list[Assistant]:
     """List all assistants."""
     _init_default_assistant(context)
     return list(_assistants.values())
@@ -92,8 +89,7 @@ async def list_assistants(
 
 @router.post("/assistants", response_model=Assistant)
 async def create_assistant(
-    request: AssistantCreate,
-    context: Dict[str, Any] = Depends(get_app_context)
+    request: AssistantCreate, context: dict[str, Any] = Depends(get_app_context)
 ) -> Assistant:
     """Create a new assistant."""
     assistant_id = str(uuid.uuid4())
@@ -107,7 +103,7 @@ async def create_assistant(
         config=request.config or AssistantConfig(),
         metadata=request.metadata or {},
         created_at=now,
-        updated_at=now
+        updated_at=now,
     )
 
     _assistants[assistant_id] = assistant
@@ -115,11 +111,10 @@ async def create_assistant(
     return assistant
 
 
-@router.post("/assistants/search", response_model=List[Assistant])
+@router.post("/assistants/search", response_model=list[Assistant])
 async def search_assistants(
-    request: AssistantSearch,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> List[Assistant]:
+    request: AssistantSearch, context: dict[str, Any] = Depends(get_app_context)
+) -> list[Assistant]:
     """Search assistants by criteria."""
     _init_default_assistant(context)
 
@@ -138,8 +133,7 @@ async def search_assistants(
 
 @router.get("/assistants/{assistant_id}", response_model=Assistant)
 async def get_assistant(
-    assistant_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
+    assistant_id: str, context: dict[str, Any] = Depends(get_app_context)
 ) -> Assistant:
     """Get an assistant by ID."""
     _init_default_assistant(context)
@@ -152,9 +146,8 @@ async def get_assistant(
 
 @router.delete("/assistants/{assistant_id}")
 async def delete_assistant(
-    assistant_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, str]:
+    assistant_id: str, context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, str]:
     """Delete an assistant."""
     if assistant_id not in _assistants:
         raise HTTPException(status_code=404, detail=f"Assistant {assistant_id} not found")
@@ -171,10 +164,10 @@ async def delete_assistant(
 # Threads Endpoints
 # =============================================================================
 
+
 @router.post("/threads", response_model=Thread)
 async def create_thread(
-    request: ThreadCreate,
-    context: Dict[str, Any] = Depends(get_app_context)
+    request: ThreadCreate, context: dict[str, Any] = Depends(get_app_context)
 ) -> Thread:
     """Create a new thread."""
     thread_id = request.thread_id or str(uuid.uuid4())
@@ -188,7 +181,7 @@ async def create_thread(
         created_at=now,
         updated_at=now,
         metadata=request.metadata or {},
-        status="idle"
+        status="idle",
     )
 
     _threads[thread_id] = thread
@@ -197,10 +190,7 @@ async def create_thread(
 
 
 @router.get("/threads/{thread_id}", response_model=Thread)
-async def get_thread(
-    thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Thread:
+async def get_thread(thread_id: str, context: dict[str, Any] = Depends(get_app_context)) -> Thread:
     """Get a thread by ID."""
     if thread_id not in _threads:
         raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
@@ -210,9 +200,8 @@ async def get_thread(
 
 @router.delete("/threads/{thread_id}")
 async def delete_thread(
-    thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, str]:
+    thread_id: str, context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, str]:
     """Delete a thread."""
     if thread_id not in _threads:
         raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
@@ -230,8 +219,7 @@ async def delete_thread(
 
 @router.get("/threads/{thread_id}/state", response_model=ThreadState)
 async def get_thread_state(
-    thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
+    thread_id: str, context: dict[str, Any] = Depends(get_app_context)
 ) -> ThreadState:
     """Get the state of a thread."""
     graph = context.get("graph")
@@ -249,29 +237,23 @@ async def get_thread_state(
 
         # Extract tasks info
         tasks_info = []
-        if hasattr(state, 'tasks') and state.tasks:
+        if hasattr(state, "tasks") and state.tasks:
             for task in state.tasks:
                 task_info = {"id": str(id(task))}
-                if hasattr(task, 'interrupts') and task.interrupts:
-                    task_info["interrupts"] = [
-                        {"value": i.value} for i in task.interrupts
-                    ]
+                if hasattr(task, "interrupts") and task.interrupts:
+                    task_info["interrupts"] = [{"value": i.value} for i in task.interrupts]
                 tasks_info.append(task_info)
 
         return ThreadState(
             values=values,
             next=next_nodes,
             tasks=tasks_info,
-            metadata=_threads.get(thread_id, Thread(
-                thread_id=thread_id,
-                created_at=_now_iso(),
-                updated_at=_now_iso()
-            )).metadata,
-            created_at=_threads.get(thread_id, Thread(
-                thread_id=thread_id,
-                created_at=_now_iso(),
-                updated_at=_now_iso()
-            )).created_at
+            metadata=_threads.get(
+                thread_id, Thread(thread_id=thread_id, created_at=_now_iso(), updated_at=_now_iso())
+            ).metadata,
+            created_at=_threads.get(
+                thread_id, Thread(thread_id=thread_id, created_at=_now_iso(), updated_at=_now_iso())
+            ).created_at,
         )
 
     except Exception as e:
@@ -281,9 +263,7 @@ async def get_thread_state(
 
 @router.post("/threads/{thread_id}/state")
 async def update_thread_state(
-    thread_id: str,
-    request: ThreadStateUpdate,
-    context: Dict[str, Any] = Depends(get_app_context)
+    thread_id: str, request: ThreadStateUpdate, context: dict[str, Any] = Depends(get_app_context)
 ) -> ThreadState:
     """Update the state of a thread."""
     graph = context.get("graph")
@@ -295,11 +275,7 @@ async def update_thread_state(
 
     try:
         # Update state
-        await graph.aupdate_state(
-            config,
-            request.values,
-            as_node=request.as_node
-        )
+        await graph.aupdate_state(config, request.values, as_node=request.as_node)
 
         # Return updated state
         return await get_thread_state(thread_id, context)
@@ -313,11 +289,10 @@ async def update_thread_state(
 # Runs Endpoints
 # =============================================================================
 
+
 @router.post("/threads/{thread_id}/runs", response_model=Run)
 async def create_run(
-    thread_id: str,
-    request: RunCreate,
-    context: Dict[str, Any] = Depends(get_app_context)
+    thread_id: str, request: RunCreate, context: dict[str, Any] = Depends(get_app_context)
 ) -> Run:
     """Create and execute a run (non-streaming)."""
     graph = context.get("graph")
@@ -330,10 +305,7 @@ async def create_run(
 
     # Verify assistant exists
     if request.assistant_id not in _assistants:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Assistant {request.assistant_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Assistant {request.assistant_id} not found")
 
     run_id = str(uuid.uuid4())
     now = _now_iso()
@@ -346,17 +318,14 @@ async def create_run(
         status=RunStatus.RUNNING,
         created_at=now,
         updated_at=now,
-        metadata=request.metadata or {}
+        metadata=request.metadata or {},
     )
     _runs[run_id] = run
 
     # Ensure thread exists
     if thread_id not in _threads:
         _threads[thread_id] = Thread(
-            thread_id=thread_id,
-            created_at=now,
-            updated_at=now,
-            status="busy"
+            thread_id=thread_id, created_at=now, updated_at=now, status="busy"
         )
     else:
         _threads[thread_id].status = "busy"
@@ -370,25 +339,23 @@ async def create_run(
         is_resuming = state.next is not None
 
         roster = []
-        if agent_registry and hasattr(agent_registry, 'get_roster'):
+        if agent_registry and hasattr(agent_registry, "get_roster"):
             roster = agent_registry.get_roster()
 
         if is_resuming:
             # Resume with input
             input_value = request.input or {}
             resume_value = input_value.get("messages", [{}])[-1].get("content", "")
-            result = await graph.ainvoke(Command(resume=resume_value), config)
+            await graph.ainvoke(Command(resume=resume_value), config)
         else:
             # New run
             input_value = request.input or {}
             messages = input_value.get("messages", [])
 
             initial_state = create_initial_state(
-                messages=messages,
-                roster=roster,
-                thread_id=thread_id
+                messages=messages, roster=roster, thread_id=thread_id
             )
-            result = await graph.ainvoke(initial_state, config)
+            await graph.ainvoke(initial_state, config)
 
         # Check if interrupted
         state = await graph.aget_state(config)
@@ -415,9 +382,7 @@ async def create_run(
 
 @router.post("/threads/{thread_id}/runs/stream")
 async def create_run_stream(
-    thread_id: str,
-    request: RunCreate,
-    context: Dict[str, Any] = Depends(get_app_context)
+    thread_id: str, request: RunCreate, context: dict[str, Any] = Depends(get_app_context)
 ):
     """Create and execute a run with streaming."""
     graph = context.get("graph")
@@ -429,10 +394,7 @@ async def create_run_stream(
     _init_default_assistant(context)
 
     if request.assistant_id not in _assistants:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Assistant {request.assistant_id} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Assistant {request.assistant_id} not found")
 
     run_id = str(uuid.uuid4())
 
@@ -442,23 +404,14 @@ async def create_run_stream(
             agent_registry=agent_registry,
             thread_id=thread_id,
             run_id=run_id,
-            request=request
+            request=request,
         ),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive"
-        }
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
 
 
-async def _stream_run(
-    graph,
-    agent_registry,
-    thread_id: str,
-    run_id: str,
-    request: RunCreate
-):
+async def _stream_run(graph, agent_registry, thread_id: str, run_id: str, request: RunCreate):
     """Stream run execution."""
     now = _now_iso()
 
@@ -470,17 +423,14 @@ async def _stream_run(
         status=RunStatus.RUNNING,
         created_at=now,
         updated_at=now,
-        metadata=request.metadata or {}
+        metadata=request.metadata or {},
     )
     _runs[run_id] = run
 
     # Ensure thread exists
     if thread_id not in _threads:
         _threads[thread_id] = Thread(
-            thread_id=thread_id,
-            created_at=now,
-            updated_at=now,
-            status="busy"
+            thread_id=thread_id, created_at=now, updated_at=now, status="busy"
         )
 
     config = {"configurable": {"thread_id": thread_id}}
@@ -491,7 +441,7 @@ async def _stream_run(
         is_resuming = state.next is not None
 
         roster = []
-        if agent_registry and hasattr(agent_registry, 'get_roster'):
+        if agent_registry and hasattr(agent_registry, "get_roster"):
             roster = agent_registry.get_roster()
 
         # Send metadata event
@@ -502,9 +452,7 @@ async def _stream_run(
             resume_value = input_value.get("messages", [{}])[-1].get("content", "")
 
             async for event in graph.astream_events(
-                Command(resume=resume_value),
-                config=config,
-                version="v2"
+                Command(resume=resume_value), config=config, version="v2"
             ):
                 sse_event = _format_studio_event(event)
                 if sse_event:
@@ -514,16 +462,10 @@ async def _stream_run(
             messages = input_value.get("messages", [])
 
             initial_state = create_initial_state(
-                messages=messages,
-                roster=roster,
-                thread_id=thread_id
+                messages=messages, roster=roster, thread_id=thread_id
             )
 
-            async for event in graph.astream_events(
-                initial_state,
-                config=config,
-                version="v2"
-            ):
+            async for event in graph.astream_events(initial_state, config=config, version="v2"):
                 sse_event = _format_studio_event(event)
                 if sse_event:
                     yield sse_event
@@ -535,8 +477,8 @@ async def _stream_run(
             _threads[thread_id].status = "interrupted"
 
             # Send interrupt event
-            tasks = getattr(state, 'tasks', [])
-            if tasks and hasattr(tasks[0], 'interrupts') and tasks[0].interrupts:
+            tasks = getattr(state, "tasks", [])
+            if tasks and hasattr(tasks[0], "interrupts") and tasks[0].interrupts:
                 interrupt_value = tasks[0].interrupts[0].value
                 yield f"event: interrupt\ndata: {json.dumps(interrupt_value)}\n\n"
         else:
@@ -554,7 +496,7 @@ async def _stream_run(
         yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
 
-def _format_studio_event(event: Dict[str, Any]) -> Optional[str]:
+def _format_studio_event(event: dict[str, Any]) -> str | None:
     """Format a LangGraph event for Studio streaming."""
     event_name = event.get("event", "")
     event_data = event.get("data", {})
@@ -580,9 +522,7 @@ def _format_studio_event(event: Dict[str, Any]) -> Optional[str]:
 
 @router.get("/threads/{thread_id}/runs/{run_id}", response_model=Run)
 async def get_run(
-    thread_id: str,
-    run_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
+    thread_id: str, run_id: str, context: dict[str, Any] = Depends(get_app_context)
 ) -> Run:
     """Get a run by ID."""
     if run_id not in _runs:
@@ -595,29 +535,30 @@ async def get_run(
     return run
 
 
-@router.get("/threads/{thread_id}/runs", response_model=List[Run])
+@router.get("/threads/{thread_id}/runs", response_model=list[Run])
 async def list_runs(
     thread_id: str,
     limit: int = 100,
     offset: int = 0,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> List[Run]:
+    context: dict[str, Any] = Depends(get_app_context),
+) -> list[Run]:
     """List runs for a thread."""
     runs = [r for r in _runs.values() if r.thread_id == thread_id]
     runs.sort(key=lambda r: r.created_at, reverse=True)
-    return runs[offset:offset + limit]
+    return runs[offset : offset + limit]
 
 
 # =============================================================================
 # Resume Endpoint (for interrupted runs)
 # =============================================================================
 
+
 @router.post("/threads/{thread_id}/runs/{run_id}/resume", response_model=Run)
 async def resume_run(
     thread_id: str,
     run_id: str,
     request: RunCreate,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context),
 ) -> Run:
     """Resume an interrupted run."""
     if run_id not in _runs:
@@ -626,8 +567,7 @@ async def resume_run(
     run = _runs[run_id]
     if run.status != RunStatus.INTERRUPTED:
         raise HTTPException(
-            status_code=400,
-            detail=f"Run {run_id} is not interrupted (status: {run.status.value})"
+            status_code=400, detail=f"Run {run_id} is not interrupted (status: {run.status.value})"
         )
 
     # Create a new run for the resume

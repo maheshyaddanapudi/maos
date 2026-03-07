@@ -1,7 +1,8 @@
 """Unit tests for OpenAI-compatible API endpoints."""
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from maos.api.models import (
     OpenAIChatRequest,
@@ -9,11 +10,12 @@ from maos.api.models import (
     OpenAIMessage,
 )
 from maos.api.routes.openai_compat import (
-    _extract_interrupt_message,
     _extract_final_content,
+    _extract_interrupt_message,
 )
 
 
+@pytest.mark.unit
 class TestExtractInterruptMessage:
     """Tests for interrupt message extraction."""
 
@@ -49,10 +51,7 @@ class TestExtractInterruptMessage:
     def test_extracts_interrupt_message(self):
         """Test extracts prompt from interrupt."""
         interrupt = MagicMock()
-        interrupt.value = {
-            "type": "input_required",
-            "prompt": "What do you need help with?"
-        }
+        interrupt.value = {"type": "input_required", "prompt": "What do you need help with?"}
 
         task = MagicMock()
         task.interrupts = [interrupt]
@@ -67,10 +66,7 @@ class TestExtractInterruptMessage:
     def test_ignores_non_input_required_interrupts(self):
         """Test ignores interrupts that aren't input_required type."""
         interrupt = MagicMock()
-        interrupt.value = {
-            "type": "other_type",
-            "data": "something"
-        }
+        interrupt.value = {"type": "other_type", "data": "something"}
 
         task = MagicMock()
         task.interrupts = [interrupt]
@@ -83,6 +79,7 @@ class TestExtractInterruptMessage:
         assert result is None
 
 
+@pytest.mark.unit
 class TestExtractFinalContent:
     """Tests for final content extraction."""
 
@@ -102,7 +99,7 @@ class TestExtractFinalContent:
         result = {
             "messages": [
                 {"role": "user", "content": "Hi"},
-                {"role": "assistant", "content": "Hello there!"}
+                {"role": "assistant", "content": "Hello there!"},
             ]
         }
 
@@ -142,45 +139,43 @@ class TestExtractFinalContent:
         assert content == "Final response"
 
 
+@pytest.mark.unit
 class TestOpenAIChatRequestModel:
     """Tests for OpenAI chat request model."""
 
     def test_request_with_thread_id(self):
         """Test request can include thread_id."""
         request = OpenAIChatRequest(
-            messages=[OpenAIMessage(role="user", content="Hello")],
-            thread_id="test-thread-123"
+            messages=[OpenAIMessage(role="user", content="Hello")], thread_id="test-thread-123"
         )
 
         assert request.thread_id == "test-thread-123"
 
     def test_request_thread_id_optional(self):
         """Test thread_id is optional."""
-        request = OpenAIChatRequest(
-            messages=[OpenAIMessage(role="user", content="Hello")]
-        )
+        request = OpenAIChatRequest(messages=[OpenAIMessage(role="user", content="Hello")])
 
         assert request.thread_id is None
 
 
+@pytest.mark.unit
 class TestOpenAIChatResponseModel:
     """Tests for OpenAI chat response model."""
 
     def test_response_includes_thread_id(self):
         """Test response includes thread_id."""
-        from maos.api.models import OpenAIChoice, OpenAIUsage
+        from maos.api.models import OpenAIChoice
 
         response = OpenAIChatResponse(
             id="test-123",
             created=1234567890,
             choices=[
                 OpenAIChoice(
-                    message=OpenAIMessage(role="assistant", content="Hi"),
-                    finish_reason="stop"
+                    message=OpenAIMessage(role="assistant", content="Hi"), finish_reason="stop"
                 )
             ],
             thread_id="thread-abc",
-            input_pending=False
+            input_pending=False,
         )
 
         assert response.thread_id == "thread-abc"
@@ -188,7 +183,7 @@ class TestOpenAIChatResponseModel:
 
     def test_response_input_pending_flag(self):
         """Test response input_pending flag for interrupts."""
-        from maos.api.models import OpenAIChoice, OpenAIUsage
+        from maos.api.models import OpenAIChoice
 
         response = OpenAIChatResponse(
             id="test-123",
@@ -196,19 +191,19 @@ class TestOpenAIChatResponseModel:
             choices=[
                 OpenAIChoice(
                     message=OpenAIMessage(
-                        role="assistant",
-                        content="What would you like help with?"
+                        role="assistant", content="What would you like help with?"
                     ),
-                    finish_reason="stop"
+                    finish_reason="stop",
                 )
             ],
             thread_id="thread-abc",
-            input_pending=True  # Indicates interrupt
+            input_pending=True,  # Indicates interrupt
         )
 
         assert response.input_pending is True
 
 
+@pytest.mark.unit
 class TestStreamingHelpers:
     """Tests for streaming helper functions."""
 
@@ -220,14 +215,7 @@ class TestStreamingHelpers:
         msg.type = "ai"
         msg.content = "Streaming content"
 
-        event = {
-            "event": "on_chain_stream",
-            "data": {
-                "chunk": {
-                    "messages": [msg]
-                }
-            }
-        }
+        event = {"event": "on_chain_stream", "data": {"chunk": {"messages": [msg]}}}
 
         content = _extract_stream_content(event)
         assert content == "Streaming content"
@@ -238,11 +226,7 @@ class TestStreamingHelpers:
 
         event = {
             "event": "on_chain_stream",
-            "data": {
-                "chunk": {
-                    "messages": [{"content": "Dict content"}]
-                }
-            }
+            "data": {"chunk": {"messages": [{"content": "Dict content"}]}},
         }
 
         content = _extract_stream_content(event)
@@ -252,10 +236,7 @@ class TestStreamingHelpers:
         """Test returns None for non-stream events."""
         from maos.api.streaming import _extract_stream_content
 
-        event = {
-            "event": "on_tool_start",
-            "data": {}
-        }
+        event = {"event": "on_tool_start", "data": {}}
 
         content = _extract_stream_content(event)
         assert content is None
@@ -265,10 +246,7 @@ class TestStreamingHelpers:
         from maos.api.streaming import _extract_interrupt_from_state
 
         interrupt = MagicMock()
-        interrupt.value = {
-            "type": "input_required",
-            "prompt": "Please clarify your request"
-        }
+        interrupt.value = {"type": "input_required", "prompt": "Please clarify your request"}
 
         task = MagicMock()
         task.interrupts = [interrupt]

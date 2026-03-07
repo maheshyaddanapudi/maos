@@ -1,8 +1,7 @@
 """Pytest configuration and fixtures for MAOS tests."""
 
 import asyncio
-import os
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,13 +15,12 @@ from maos.config.models import (
     LLMConfig,
     LLMProvider,
     MCPServerConfig,
-    ServingConfig,
     SkillConfig,
     SkillsetConfig,
     ToolConfig,
 )
-from maos.llm.base import LLMAdapter, LLMResponse, Message, ToolCallRequest
 from maos.graph.state import GraphState
+from maos.llm.base import LLMAdapter, LLMResponse
 
 
 @pytest.fixture(scope="session")
@@ -39,24 +37,22 @@ def minimal_config() -> Config:
     return Config(
         llms={
             "default": LLMConfig(
-                provider=LLMProvider.OPENAI,
-                model="gpt-4o-mini",
-                api_key_env="OPENAI_API_KEY"
+                provider=LLMProvider.OPENAI, model="gpt-4o-mini", api_key_env="OPENAI_API_KEY"
             )
         },
         agents={
             "supervisor": AgentConfig(
                 kind=AgentKind.SUPERVISOR,
                 llm="default",
-                system_prompt="You are a supervisor that routes tasks."
+                system_prompt="You are a supervisor that routes tasks.",
             ),
             "worker1": AgentConfig(
                 kind=AgentKind.NATIVE_WORKER,
                 llm="default",
                 system_prompt="You are a helpful assistant.",
-                description="General purpose worker"
-            )
-        }
+                description="General purpose worker",
+            ),
+        },
     )
 
 
@@ -65,62 +61,40 @@ def full_config() -> Config:
     """Create a full configuration with all features."""
     return Config(
         llms={
-            "default": LLMConfig(
-                provider=LLMProvider.OPENAI,
-                model="gpt-4o-mini",
-                temperature=0.7
-            ),
-            "fast": LLMConfig(
-                provider=LLMProvider.OPENAI,
-                model="gpt-4o-mini",
-                temperature=0.0
-            )
+            "default": LLMConfig(provider=LLMProvider.OPENAI, model="gpt-4o-mini", temperature=0.7),
+            "fast": LLMConfig(provider=LLMProvider.OPENAI, model="gpt-4o-mini", temperature=0.0),
         },
         mcp_servers={
             "test-server": MCPServerConfig(
-                transport="stdio",
-                command=["python", "-m", "test_mcp_server"]
+                transport="stdio", command=["python", "-m", "test_mcp_server"]
             )
         },
-        tools={
-            "test_tool": ToolConfig(
-                server="test-server",
-                tool_name="test_tool"
-            )
-        },
-        skills={
-            "test_skill": SkillConfig(
-                tools=["test_tool"],
-                description="A test skill"
-            )
-        },
+        tools={"test_tool": ToolConfig(server="test-server", tool_name="test_tool")},
+        skills={"test_skill": SkillConfig(tools=["test_tool"], description="A test skill")},
         skillsets={
-            "test_skillset": SkillsetConfig(
-                skills=["test_skill"],
-                description="A test skillset"
-            )
+            "test_skillset": SkillsetConfig(skills=["test_skill"], description="A test skillset")
         },
         agents={
             "supervisor": AgentConfig(
                 kind=AgentKind.SUPERVISOR,
                 llm="default",
-                system_prompt="Route tasks to appropriate workers."
+                system_prompt="Route tasks to appropriate workers.",
             ),
             "researcher": AgentConfig(
                 kind=AgentKind.NATIVE_WORKER,
                 llm="default",
                 skillset="test_skillset",
                 system_prompt="Research and gather information.",
-                description="Research specialist"
+                description="Research specialist",
             ),
             "writer": AgentConfig(
                 kind=AgentKind.NATIVE_WORKER,
                 llm="fast",
                 system_prompt="Write content based on research.",
-                description="Content writer"
-            )
+                description="Content writer",
+            ),
         },
-        graph=GraphConfig(max_iterations=5)
+        graph=GraphConfig(max_iterations=5),
     )
 
 
@@ -130,11 +104,7 @@ def mock_llm_adapter() -> LLMAdapter:
     adapter = MagicMock(spec=LLMAdapter)
 
     async def mock_invoke(messages, tools=None):
-        return LLMResponse(
-            content="This is a mock response",
-            tool_calls=[],
-            finish_reason="stop"
-        )
+        return LLMResponse(content="This is a mock response", tool_calls=[], finish_reason="stop")
 
     async def mock_stream(messages, tools=None):
         yield LLMResponse(content="Mock ", tool_calls=[], finish_reason=None)
@@ -157,7 +127,7 @@ def mock_supervisor_llm() -> LLMAdapter:
         return LLMResponse(
             content='{"next": "END", "reasoning": "Task complete"}',
             tool_calls=[],
-            finish_reason="stop"
+            finish_reason="stop",
         )
 
     adapter.invoke = AsyncMock(side_effect=mock_invoke)
@@ -174,12 +144,9 @@ def mock_tool():
     tool.name = "Mock Tool"
     tool.description = "A mock tool for testing"
     tool.input_schema = MagicMock()
-    tool.input_schema.model_dump = MagicMock(return_value={
-        "type": "object",
-        "properties": {
-            "input": {"type": "string"}
-        }
-    })
+    tool.input_schema.model_dump = MagicMock(
+        return_value={"type": "object", "properties": {"input": {"type": "string"}}}
+    )
 
     async def mock_call(args):
         return {"result": "success"}
@@ -190,11 +157,9 @@ def mock_tool():
 
 
 @pytest.fixture
-def sample_messages() -> List[Dict[str, Any]]:
+def sample_messages() -> list[dict[str, Any]]:
     """Create sample conversation messages."""
-    return [
-        {"role": "user", "content": "Hello, can you help me with a task?"}
-    ]
+    return [{"role": "user", "content": "Hello, can you help me with a task?"}]
 
 
 @pytest.fixture
@@ -210,7 +175,7 @@ def sample_graph_state(sample_messages) -> GraphState:
         "done": False,
         "iteration": 0,
         "metadata": {},
-        "thread_id": "test-thread"
+        "thread_id": "test-thread",
     }
 
 
@@ -256,11 +221,7 @@ async def mock_mcp_connection():
 
     async def mock_list_tools():
         return [
-            {
-                "name": "test_tool",
-                "description": "A test tool",
-                "inputSchema": {"type": "object"}
-            }
+            {"name": "test_tool", "description": "A test tool", "inputSchema": {"type": "object"}}
         ]
 
     async def mock_invoke_tool(name, args):
@@ -282,10 +243,7 @@ async def mock_a2a_client():
     client = MagicMock()
 
     async def mock_send_message(agent, message, timeout=30):
-        return A2AResponse(
-            status=TaskStatus.COMPLETED,
-            content="Response from external agent"
-        )
+        return A2AResponse(status=TaskStatus.COMPLETED, content="Response from external agent")
 
     client.send_message = AsyncMock(side_effect=mock_send_message)
 
@@ -295,15 +253,7 @@ async def mock_a2a_client():
 # Markers
 def pytest_configure(config):
     """Configure custom markers."""
-    config.addinivalue_line(
-        "markers", "unit: mark test as a unit test"
-    )
-    config.addinivalue_line(
-        "markers", "integration: mark test as an integration test"
-    )
-    config.addinivalue_line(
-        "markers", "e2e: mark test as an end-to-end test"
-    )
-    config.addinivalue_line(
-        "markers", "slow: mark test as slow running"
-    )
+    config.addinivalue_line("markers", "unit: mark test as a unit test")
+    config.addinivalue_line("markers", "integration: mark test as an integration test")
+    config.addinivalue_line("markers", "e2e: mark test as an end-to-end test")
+    config.addinivalue_line("markers", "slow: mark test as slow running")

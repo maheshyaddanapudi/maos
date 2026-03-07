@@ -5,11 +5,11 @@ for true plug-and-play agent discovery.
 """
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 from maos.graph.state import create_initial_state
 
@@ -22,41 +22,41 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 # Request/Response Models
 # =============================================================================
 
+
 class TitleGenerationRequest(BaseModel):
     """Request for title generation."""
-    messages: List[Dict[str, str]] = Field(
-        ...,
-        description="Conversation messages to generate title for",
-        min_length=1
-    )
-    thread_id: Optional[str] = Field(
-        None,
-        description="Thread ID for the conversation"
-    )
 
-    class Config:
-        json_schema_extra = {
+    messages: list[dict[str, str]] = Field(
+        ..., description="Conversation messages to generate title for", min_length=1
+    )
+    thread_id: str | None = Field(None, description="Thread ID for the conversation")
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "messages": [
                     {"role": "user", "content": "How do I sort a list in Python?"},
-                    {"role": "assistant", "content": "You can use sorted() or list.sort()..."}
+                    {"role": "assistant", "content": "You can use sorted() or list.sort()..."},
                 ]
             }
         }
+    )
 
 
 class TitleGenerationResponse(BaseModel):
     """Response from title generation."""
+
     title: str
     thread_id: str
     generated_via: str = Field(
         default="supervisor",
-        description="How the title was generated (always 'supervisor' for plug-and-play)"
+        description="How the title was generated (always 'supervisor' for plug-and-play)",
     )
 
 
 class BackgroundTasksRequest(BaseModel):
     """OpenWebUI-compatible background tasks configuration."""
+
     title_generation: bool = False
     tags_generation: bool = False
 
@@ -65,7 +65,8 @@ class BackgroundTasksRequest(BaseModel):
 # Dependency Injection
 # =============================================================================
 
-def get_app_context() -> Dict[str, Any]:
+
+def get_app_context() -> dict[str, Any]:
     """Get application context - to be overridden by dependency injection."""
     return {}
 
@@ -74,10 +75,10 @@ def get_app_context() -> Dict[str, Any]:
 # Endpoints
 # =============================================================================
 
+
 @router.post("/title", response_model=TitleGenerationResponse)
 async def generate_title(
-    request: TitleGenerationRequest,
-    context: Dict[str, Any] = Depends(get_app_context)
+    request: TitleGenerationRequest, context: dict[str, Any] = Depends(get_app_context)
 ):
     """
     Generate a title for a conversation.
@@ -104,7 +105,7 @@ async def generate_title(
 
     # Get roster - title_generator should be in here
     roster = []
-    if agent_registry and hasattr(agent_registry, 'get_roster'):
+    if agent_registry and hasattr(agent_registry, "get_roster"):
         roster = agent_registry.get_roster()
 
     if "title_generator" not in roster:
@@ -114,7 +115,7 @@ async def generate_title(
         return TitleGenerationResponse(
             title=first_msg.strip() or "New Conversation",
             thread_id=thread_id,
-            generated_via="fallback"
+            generated_via="fallback",
         )
 
     # Build conversation summary for title generation
@@ -122,7 +123,9 @@ async def generate_title(
 
     # Create the title request message
     # This goes through supervisor which will route to title_generator
-    title_request = f"Generate a concise title (3-8 words) for this conversation:\n\n{conversation_summary}"
+    title_request = (
+        f"Generate a concise title (3-8 words) for this conversation:\n\n{conversation_summary}"
+    )
 
     messages = [{"role": "user", "content": title_request}]
 
@@ -130,7 +133,7 @@ async def generate_title(
     state = create_initial_state(
         messages=messages,
         roster=roster,
-        thread_id=f"title-{thread_id}"  # Separate thread for title generation
+        thread_id=f"title-{thread_id}",  # Separate thread for title generation
     )
 
     config = {"configurable": {"thread_id": f"title-{thread_id}"}}
@@ -145,28 +148,21 @@ async def generate_title(
             "title_generated_via_supervisor",
             thread_id=thread_id,
             title=title,
-            message_count=len(request.messages)
+            message_count=len(request.messages),
         )
 
-        return TitleGenerationResponse(
-            title=title,
-            thread_id=thread_id,
-            generated_via="supervisor"
-        )
+        return TitleGenerationResponse(title=title, thread_id=thread_id, generated_via="supervisor")
 
     except Exception as e:
         logger.error("title_generation_failed", error=str(e))
-        raise HTTPException(
-            status_code=500,
-            detail=f"Title generation failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Title generation failed: {str(e)}")
 
 
 @router.post("/title/async")
 async def generate_title_async(
     request: TitleGenerationRequest,
     background_tasks: BackgroundTasks,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context),
 ):
     """
     Queue title generation as a background task.
@@ -185,14 +181,14 @@ async def generate_title_async(
         task_id=task_id,
         thread_id=thread_id,
         messages=request.messages,
-        context=context
+        context=context,
     )
 
     return {
         "task_id": task_id,
         "thread_id": thread_id,
         "status": "queued",
-        "message": "Title generation queued. Poll /api/tasks/status/{task_id} for result."
+        "message": "Title generation queued. Poll /api/tasks/status/{task_id} for result.",
     }
 
 
@@ -200,7 +196,8 @@ async def generate_title_async(
 # Helper Functions
 # =============================================================================
 
-def _build_conversation_summary(messages: List[Dict[str, str]], max_chars: int = 500) -> str:
+
+def _build_conversation_summary(messages: list[dict[str, str]], max_chars: int = 500) -> str:
     """Build a summary of the conversation for title generation."""
     summary_parts = []
     total_chars = 0
@@ -224,7 +221,7 @@ def _build_conversation_summary(messages: List[Dict[str, str]], max_chars: int =
     return "\n".join(summary_parts)
 
 
-def _extract_title_from_result(result: Dict[str, Any]) -> str:
+def _extract_title_from_result(result: dict[str, Any]) -> str:
     """Extract the title from graph result."""
     messages = result.get("messages", [])
 
@@ -249,10 +246,7 @@ def _extract_title_from_result(result: Dict[str, Any]) -> str:
 
 
 async def _generate_title_background(
-    task_id: str,
-    thread_id: str,
-    messages: List[Dict[str, str]],
-    context: Dict[str, Any]
+    task_id: str, thread_id: str, messages: list[dict[str, str]], context: dict[str, Any]
 ) -> None:
     """Background task for title generation."""
     # TODO: Store result in a task store for retrieval
@@ -266,32 +260,25 @@ async def _generate_title_background(
             return
 
         roster = []
-        if agent_registry and hasattr(agent_registry, 'get_roster'):
+        if agent_registry and hasattr(agent_registry, "get_roster"):
             roster = agent_registry.get_roster()
 
         conversation_summary = _build_conversation_summary(messages)
-        title_request = f"Generate a concise title (3-8 words) for this conversation:\n\n{conversation_summary}"
+        title_request = (
+            f"Generate a concise title (3-8 words) for this conversation:\n\n{conversation_summary}"
+        )
 
         state = create_initial_state(
             messages=[{"role": "user", "content": title_request}],
             roster=roster,
-            thread_id=f"title-{thread_id}"
+            thread_id=f"title-{thread_id}",
         )
 
         config = {"configurable": {"thread_id": f"title-{thread_id}"}}
         result = await graph.ainvoke(state, config)
         title = _extract_title_from_result(result)
 
-        logger.info(
-            "background_title_generated",
-            task_id=task_id,
-            thread_id=thread_id,
-            title=title
-        )
+        logger.info("background_title_generated", task_id=task_id, thread_id=thread_id, title=title)
 
     except Exception as e:
-        logger.error(
-            "background_title_failed",
-            task_id=task_id,
-            error=str(e)
-        )
+        logger.error("background_title_failed", task_id=task_id, error=str(e))

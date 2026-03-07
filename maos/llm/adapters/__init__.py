@@ -15,8 +15,8 @@ Benefits:
 
 from maos.llm.adapters.langchain_adapter import (
     LangChainAdapter,
-    create_langchain_model,
     create_adapter_from_config,
+    create_langchain_model,
 )
 
 __all__ = [

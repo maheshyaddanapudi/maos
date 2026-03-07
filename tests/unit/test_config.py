@@ -1,8 +1,8 @@
 """Unit tests for config module."""
 
 import pytest
-import yaml
 
+from maos.config.loader import ConfigLoader
 from maos.config.models import (
     AgentConfig,
     AgentKind,
@@ -10,24 +10,17 @@ from maos.config.models import (
     GraphConfig,
     LLMConfig,
     LLMProvider,
-    MCPServerConfig,
-    ServingConfig,
     SkillConfig,
-    SkillsetConfig,
-    ToolConfig,
 )
-from maos.config.loader import ConfigLoader
 
 
+@pytest.mark.unit
 class TestLLMConfig:
     """Tests for LLMConfig model."""
 
     def test_openai_config(self):
         """Test OpenAI LLM configuration."""
-        config = LLMConfig(
-            provider=LLMProvider.OPENAI,
-            model="gpt-4o-mini"
-        )
+        config = LLMConfig(provider=LLMProvider.OPENAI, model="gpt-4o-mini")
         assert config.provider == LLMProvider.OPENAI
         assert config.model == "gpt-4o-mini"
         assert config.temperature == 0.7  # default
@@ -35,9 +28,7 @@ class TestLLMConfig:
     def test_anthropic_config(self):
         """Test Anthropic LLM configuration."""
         config = LLMConfig(
-            provider=LLMProvider.ANTHROPIC,
-            model="claude-3-5-sonnet-20241022",
-            temperature=0.5
+            provider=LLMProvider.ANTHROPIC, model="claude-3-5-sonnet-20241022", temperature=0.5
         )
         assert config.provider == LLMProvider.ANTHROPIC
         assert config.temperature == 0.5
@@ -56,15 +47,14 @@ class TestLLMConfig:
             LLMConfig(provider=LLMProvider.OPENAI, model="test", temperature=2.1)
 
 
+@pytest.mark.unit
 class TestAgentConfig:
     """Tests for AgentConfig model."""
 
     def test_supervisor_config(self):
         """Test supervisor agent configuration."""
         config = AgentConfig(
-            kind=AgentKind.SUPERVISOR,
-            llm="default",
-            system_prompt="You are a supervisor."
+            kind=AgentKind.SUPERVISOR, llm="default", system_prompt="You are a supervisor."
         )
         assert config.kind == AgentKind.SUPERVISOR
         assert config.timeout_seconds == 60  # default
@@ -76,12 +66,13 @@ class TestAgentConfig:
             llm="fast",
             system_prompt="You are a worker.",
             description="A helpful worker",
-            tools=["tool1", "tool2"]
+            tools=["tool1", "tool2"],
         )
         assert config.kind == AgentKind.NATIVE_WORKER
         assert len(config.tools) == 2
 
 
+@pytest.mark.unit
 class TestGraphConfig:
     """Tests for GraphConfig model."""
 
@@ -97,6 +88,7 @@ class TestGraphConfig:
         assert config.max_iterations == 20
 
 
+@pytest.mark.unit
 class TestConfig:
     """Tests for root Config model."""
 
@@ -113,6 +105,7 @@ class TestConfig:
         assert full_config.graph.max_iterations == 5
 
 
+@pytest.mark.unit
 class TestConfigLoader:
     """Tests for ConfigLoader."""
 
@@ -152,6 +145,7 @@ llms:
             loader.load_from_string(yaml_content)
 
 
+@pytest.mark.unit
 class TestConfigValidation:
     """Tests for configuration validation."""
 
@@ -163,22 +157,18 @@ class TestConfigValidation:
     def test_invalid_tool_reference(self):
         """Test detection of invalid tool reference in skill."""
         config = Config(
-            llms={
-                "default": LLMConfig(provider=LLMProvider.OPENAI, model="test")
-            },
+            llms={"default": LLMConfig(provider=LLMProvider.OPENAI, model="test")},
             agents={
                 "supervisor": AgentConfig(
-                    kind=AgentKind.SUPERVISOR,
-                    llm="default",
-                    system_prompt="test"
+                    kind=AgentKind.SUPERVISOR, llm="default", system_prompt="test"
                 )
             },
             skills={
                 "test_skill": SkillConfig(
                     tools=["nonexistent_tool"],  # Invalid reference
-                    description="Test skill"
+                    description="Test skill",
                 )
-            }
+            },
         )
 
         errors = config.validate_references()

@@ -1,15 +1,20 @@
 """Factory for creating agents."""
 
-from typing import List, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import structlog
 
+from maos.agents.models import Agent, SupervisorAgent, WorkerAgent
 from maos.config.models import AgentConfig, AgentKind
 from maos.llm.registry import LLMRegistry
-from maos.skills.registry import SkillsetRegistry, SkillRegistry
-from maos.tools.registry import ToolRegistry
+from maos.skills.registry import SkillRegistry, SkillsetRegistry
 from maos.tools.models import Tool
-from maos.agents.models import Agent, WorkerAgent, SupervisorAgent
+from maos.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from maos.config.models import GraphConfig
 
 logger = structlog.get_logger()
 
@@ -22,7 +27,8 @@ class AgentFactory:
         llm_registry: LLMRegistry,
         skillset_registry: SkillsetRegistry,
         skill_registry: SkillRegistry,
-        tool_registry: ToolRegistry
+        tool_registry: ToolRegistry,
+        graph_config: GraphConfig | None = None,
     ):
         """
         Initialize the agent factory.
@@ -32,17 +38,15 @@ class AgentFactory:
             skillset_registry: Registry of skillsets.
             skill_registry: Registry of skills.
             tool_registry: Registry of tools.
+            graph_config: Optional graph configuration for max_iterations etc.
         """
         self._llm_registry = llm_registry
         self._skillset_registry = skillset_registry
         self._skill_registry = skill_registry
         self._tool_registry = tool_registry
+        self._graph_config = graph_config
 
-    def create_worker(
-        self,
-        name: str,
-        config: AgentConfig
-    ) -> WorkerAgent:
+    def create_worker(self, name: str, config: AgentConfig) -> WorkerAgent:
         """
         Create a native worker agent.
 
@@ -77,19 +81,19 @@ class AgentFactory:
             timeout_seconds=config.timeout_seconds,
             skillset=config.skillset,
             tool_ids=list(set(tool_ids)),  # Dedupe
-            llm_name=config.llm
+            llm_name=config.llm,
         )
 
         logger.debug(
             "created_worker_agent",
             name=name,
             framework=config.framework,
-            tools=len(worker.tool_ids)
+            tools=len(worker.tool_ids),
         )
 
         return worker
 
-    def create(self, name: str, config: AgentConfig, roster: Optional[List[str]] = None) -> Agent:
+    def create(self, name: str, config: AgentConfig, roster: list[str] | None = None) -> Agent:
         """
         Create an agent based on its kind.
 
@@ -117,10 +121,7 @@ class AgentFactory:
             raise ValueError(f"Unknown agent kind: {config.kind}")
 
     def create_supervisor(
-        self,
-        name: str,
-        config: AgentConfig,
-        roster: List[str]
+        self, name: str, config: AgentConfig, roster: list[str]
     ) -> SupervisorAgent:
         """
         Create the supervisor agent.
@@ -147,19 +148,15 @@ class AgentFactory:
             timeout_seconds=config.timeout_seconds,
             roster=roster,
             llm_name=config.llm,
-            max_iterations=12  # Could be made configurable
+            max_iterations=self._graph_config.max_iterations if self._graph_config else 12,
         )
         supervisor.set_llm(llm)
 
-        logger.debug(
-            "created_supervisor_agent",
-            name=name,
-            roster=roster
-        )
+        logger.debug("created_supervisor_agent", name=name, roster=roster)
 
         return supervisor
 
-    def get_tools_for_worker(self, worker: WorkerAgent) -> List[Tool]:
+    def get_tools_for_worker(self, worker: WorkerAgent) -> list[Tool]:
         """
         Get all tools for a worker agent.
 

@@ -4,8 +4,8 @@ This module provides built-in agent implementations that can be run
 as external A2A services within the MAOS system.
 """
 
-from maos.a2a.agents.title_generator import TitleGeneratorAgent
 from maos.a2a.agents.base import ExternalAgentServer
+from maos.a2a.agents.title_generator import TitleGeneratorAgent
 
 __all__ = [
     "TitleGeneratorAgent",

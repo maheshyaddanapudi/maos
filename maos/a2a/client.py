@@ -1,7 +1,7 @@
 """A2A client for communicating with external agents."""
 
 import uuid
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
 
 import httpx
 import structlog
@@ -22,11 +22,7 @@ logger = structlog.get_logger()
 class A2AClient:
     """Client for A2A protocol communication."""
 
-    def __init__(
-        self,
-        http_client: Optional[httpx.AsyncClient] = None,
-        timeout: float = 40.0
-    ):
+    def __init__(self, http_client: httpx.AsyncClient | None = None, timeout: float = 40.0):
         """
         Initialize A2A client.
 
@@ -45,10 +41,7 @@ class A2AClient:
         return self._http_client
 
     async def send_message(
-        self,
-        agent: DiscoveredAgent,
-        message: str,
-        timeout: Optional[int] = None
+        self, agent: DiscoveredAgent, message: str, timeout: int | None = None
     ) -> A2AResponse:
         """
         Send a message to an external agent.
@@ -69,24 +62,17 @@ class A2AClient:
             id=request_id,
             params=A2AParams(
                 message=A2AMessage.from_text("user", message),
-                configuration=A2AConfiguration(
-                    timeout=timeout or int(self._timeout),
-                    stream=False
-                )
-            )
+                configuration=A2AConfiguration(timeout=timeout or int(self._timeout), stream=False),
+            ),
         )
 
-        logger.debug(
-            "sending_a2a_message",
-            agent=agent.card.name,
-            endpoint=agent.endpoint
-        )
+        logger.debug("sending_a2a_message", agent=agent.card.name, endpoint=agent.endpoint)
 
         try:
             response = await client.post(
                 agent.endpoint,
                 json=request.model_dump(by_alias=True),
-                headers={"Content-Type": "application/json"}
+                headers={"Content-Type": "application/json"},
             )
             response.raise_for_status()
 
@@ -95,28 +81,21 @@ class A2AClient:
             logger.debug(
                 "received_a2a_response",
                 agent=agent.card.name,
-                status=a2a_response.result.task.status if a2a_response.result else "error"
+                status=a2a_response.result.task.status if a2a_response.result else "error",
             )
 
             return a2a_response
 
         except httpx.TimeoutException:
             return A2AResponse(
-                id=request_id,
-                error={"code": -32000, "message": f"Timeout after {self._timeout}s"}
+                id=request_id, error={"code": -32000, "message": f"Timeout after {self._timeout}s"}
             )
         except Exception as e:
             logger.error("a2a_request_failed", agent=agent.card.name, error=str(e))
-            return A2AResponse(
-                id=request_id,
-                error={"code": -32000, "message": str(e)}
-            )
+            return A2AResponse(id=request_id, error={"code": -32000, "message": str(e)})
 
     async def stream_message(
-        self,
-        agent: DiscoveredAgent,
-        message: str,
-        timeout: Optional[int] = None
+        self, agent: DiscoveredAgent, message: str, timeout: int | None = None
     ) -> AsyncIterator[str]:
         """
         Stream a message to an external agent.
@@ -146,11 +125,8 @@ class A2AClient:
             id=request_id,
             params=A2AParams(
                 message=A2AMessage.from_text("user", message),
-                configuration=A2AConfiguration(
-                    timeout=timeout or int(self._timeout),
-                    stream=True
-                )
-            )
+                configuration=A2AConfiguration(timeout=timeout or int(self._timeout), stream=True),
+            ),
         )
 
         try:
@@ -158,10 +134,7 @@ class A2AClient:
                 "POST",
                 agent.endpoint,
                 json=request.model_dump(by_alias=True),
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "text/event-stream"
-                }
+                headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
             ) as response:
                 response.raise_for_status()
 
@@ -171,6 +144,7 @@ class A2AClient:
                         # Try to parse as JSON
                         try:
                             import json
+
                             chunk = json.loads(data)
                             # Extract content based on format
                             if "content" in chunk:
@@ -184,11 +158,7 @@ class A2AClient:
         except Exception as e:
             logger.error("a2a_stream_failed", agent=agent.card.name, error=str(e))
 
-    async def get_task_status(
-        self,
-        agent: DiscoveredAgent,
-        task_id: str
-    ) -> Optional[TaskStatus]:
+    async def get_task_status(self, agent: DiscoveredAgent, task_id: str) -> TaskStatus | None:
         """
         Get the status of a task.
 
@@ -205,14 +175,12 @@ class A2AClient:
             "jsonrpc": "2.0",
             "method": "tasks/get",
             "id": str(uuid.uuid4()),
-            "params": {"taskId": task_id}
+            "params": {"taskId": task_id},
         }
 
         try:
             response = await client.post(
-                agent.endpoint,
-                json=request,
-                headers={"Content-Type": "application/json"}
+                agent.endpoint, json=request, headers={"Content-Type": "application/json"}
             )
             response.raise_for_status()
 

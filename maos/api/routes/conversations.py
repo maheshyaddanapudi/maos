@@ -10,11 +10,11 @@ These endpoints work with any checkpointer (memory, SQLite, PostgreSQL)
 but persistent storage (SQLite/Postgres) is required for data to survive restarts.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-import structlog
 
 logger = structlog.get_logger()
 
@@ -25,35 +25,40 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 # Response Models
 # =============================================================================
 
+
 class ConversationSummary(BaseModel):
     """Summary info for a conversation."""
+
     thread_id: str
     message_count: int = 0
     last_message_preview: str = ""
-    last_update: Optional[str] = None
+    last_update: str | None = None
     status: str = "idle"  # idle, interrupted, error
 
 
 class ConversationMessage(BaseModel):
     """A message in a conversation."""
+
     role: str
     content: str
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class ConversationDetail(BaseModel):
     """Full conversation details."""
+
     thread_id: str
-    messages: List[ConversationMessage]
+    messages: list[ConversationMessage]
     message_count: int
     is_interrupted: bool = False
-    interrupt_prompt: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    interrupt_prompt: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConversationListResponse(BaseModel):
     """Response for listing conversations."""
-    conversations: List[ConversationSummary]
+
+    conversations: list[ConversationSummary]
     total: int
     limit: int
     offset: int
@@ -61,8 +66,9 @@ class ConversationListResponse(BaseModel):
 
 class MessageListResponse(BaseModel):
     """Response for listing messages."""
+
     thread_id: str
-    messages: List[ConversationMessage]
+    messages: list[ConversationMessage]
     total: int
 
 
@@ -70,7 +76,8 @@ class MessageListResponse(BaseModel):
 # Dependency
 # =============================================================================
 
-def get_app_context() -> Dict[str, Any]:
+
+def get_app_context() -> dict[str, Any]:
     """Get application context - to be overridden by dependency injection."""
     return {}
 
@@ -79,11 +86,12 @@ def get_app_context() -> Dict[str, Any]:
 # Endpoints
 # =============================================================================
 
+
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context),
 ) -> ConversationListResponse:
     """
     List all conversations with summary information.
@@ -107,22 +115,24 @@ async def list_conversations(
         try:
             threads = await conversation_store.list_threads(limit=limit, offset=offset)
             for thread_info in threads:
-                conversations.append(ConversationSummary(
-                    thread_id=thread_info.get("thread_id", ""),
-                    message_count=thread_info.get("message_count", 0),
-                    last_message_preview=thread_info.get("last_message_preview", ""),
-                    last_update=thread_info.get("last_update"),
-                ))
+                conversations.append(
+                    ConversationSummary(
+                        thread_id=thread_info.get("thread_id", ""),
+                        message_count=thread_info.get("message_count", 0),
+                        last_message_preview=thread_info.get("last_message_preview", ""),
+                        last_update=thread_info.get("last_update"),
+                    )
+                )
         except Exception as e:
             logger.error("list_conversations_error", error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
 
     # Fallback: Try to get threads from graph checkpointer directly
     elif graph:
-        checkpointer = getattr(graph, 'checkpointer', None)
+        checkpointer = getattr(graph, "checkpointer", None)
         if checkpointer:
-            storage = getattr(checkpointer, 'storage', {})
-            thread_ids = list(storage.keys())[offset:offset + limit]
+            storage = getattr(checkpointer, "storage", {})
+            thread_ids = list(storage.keys())[offset : offset + limit]
 
             for thread_id in thread_ids:
                 try:
@@ -141,12 +151,14 @@ async def list_conversations(
 
                         status = "interrupted" if state.next else "idle"
 
-                        conversations.append(ConversationSummary(
-                            thread_id=thread_id,
-                            message_count=len(messages),
-                            last_message_preview=last_preview,
-                            status=status,
-                        ))
+                        conversations.append(
+                            ConversationSummary(
+                                thread_id=thread_id,
+                                message_count=len(messages),
+                                last_message_preview=last_preview,
+                                status=status,
+                            )
+                        )
                 except Exception as e:
                     logger.warning("get_thread_info_error", thread_id=thread_id, error=str(e))
 
@@ -160,8 +172,7 @@ async def list_conversations(
 
 @router.get("/{thread_id}", response_model=ConversationDetail)
 async def get_conversation(
-    thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
+    thread_id: str, context: dict[str, Any] = Depends(get_app_context)
 ) -> ConversationDetail:
     """
     Get full conversation details including all messages and state.
@@ -190,25 +201,29 @@ async def get_conversation(
                 role = "assistant" if msg.type == "ai" else msg.type
                 if role == "human":
                     role = "user"
-                messages.append(ConversationMessage(
-                    role=role,
-                    content=str(msg.content),
-                    name=getattr(msg, "name", None),
-                ))
+                messages.append(
+                    ConversationMessage(
+                        role=role,
+                        content=str(msg.content),
+                        name=getattr(msg, "name", None),
+                    )
+                )
             elif isinstance(msg, dict):
-                messages.append(ConversationMessage(
-                    role=msg.get("role", "unknown"),
-                    content=msg.get("content", ""),
-                    name=msg.get("name"),
-                ))
+                messages.append(
+                    ConversationMessage(
+                        role=msg.get("role", "unknown"),
+                        content=msg.get("content", ""),
+                        name=msg.get("name"),
+                    )
+                )
 
         # Check if interrupted
         is_interrupted = state.next is not None
         interrupt_prompt = None
 
         if is_interrupted:
-            tasks = getattr(state, 'tasks', [])
-            if tasks and hasattr(tasks[0], 'interrupts') and tasks[0].interrupts:
+            tasks = getattr(state, "tasks", [])
+            if tasks and hasattr(tasks[0], "interrupts") and tasks[0].interrupts:
                 interrupt_value = tasks[0].interrupts[0].value
                 if isinstance(interrupt_value, dict):
                     interrupt_prompt = interrupt_value.get("prompt")
@@ -231,8 +246,7 @@ async def get_conversation(
 
 @router.get("/{thread_id}/messages", response_model=MessageListResponse)
 async def get_conversation_messages(
-    thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
+    thread_id: str, context: dict[str, Any] = Depends(get_app_context)
 ) -> MessageListResponse:
     """
     Get just the messages for a conversation.
@@ -251,9 +265,8 @@ async def get_conversation_messages(
 
 @router.delete("/{thread_id}")
 async def delete_conversation(
-    thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, Any]:
+    thread_id: str, context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, Any]:
     """
     Delete a conversation and all its history.
 
@@ -274,9 +287,9 @@ async def delete_conversation(
             deleted = await conversation_store.delete_thread(thread_id)
 
         elif graph:
-            checkpointer = getattr(graph, 'checkpointer', None)
+            checkpointer = getattr(graph, "checkpointer", None)
             if checkpointer:
-                storage = getattr(checkpointer, 'storage', {})
+                storage = getattr(checkpointer, "storage", {})
                 if thread_id in storage:
                     del storage[thread_id]
                     deleted = True
@@ -296,9 +309,8 @@ async def delete_conversation(
 
 @router.get("/{thread_id}/status")
 async def get_conversation_status(
-    thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, Any]:
+    thread_id: str, context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, Any]:
     """
     Get the current status of a conversation.
 

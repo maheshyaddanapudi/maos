@@ -14,14 +14,14 @@ Usage:
     result = await graph.ainvoke(initial_state, config={"configurable": {"thread_id": "..."}})
 """
 
+from maos.graph.factory import GraphFactory
 from maos.graph.state import (
     GraphState,
-    WorkerResult,
     ResultOutput,
     ResultType,
+    WorkerResult,
     create_initial_state,
 )
-from maos.graph.factory import GraphFactory
 
 __all__ = [
     "GraphState",

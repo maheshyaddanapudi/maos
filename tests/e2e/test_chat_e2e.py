@@ -1,7 +1,6 @@
 """End-to-end tests for chat functionality."""
 
 import pytest
-from unittest.mock import MagicMock
 
 
 @pytest.mark.e2e
@@ -12,9 +11,7 @@ class TestAPIModelsE2E:
         """Test ChatRequest model creation."""
         from maos.api.models import ChatRequest, Message, MessageRole
 
-        request = ChatRequest(
-            messages=[Message(role=MessageRole.USER, content="Hello")]
-        )
+        request = ChatRequest(messages=[Message(role=MessageRole.USER, content="Hello")])
         assert len(request.messages) == 1
         assert not request.stream
 
@@ -26,7 +23,7 @@ class TestAPIModelsE2E:
             thread_id="test-123",
             messages=[Message(role=MessageRole.ASSISTANT, content="Hi!")],
             final_response="Hi!",
-            iterations=1
+            iterations=1,
         )
         assert response.done
         assert response.thread_id == "test-123"
@@ -42,11 +39,7 @@ class TestAPIModelsE2E:
         """Test AgentInfo model creation."""
         from maos.api.models import AgentInfo
 
-        agent = AgentInfo(
-            name="test_agent",
-            kind="native_worker",
-            description="A test agent"
-        )
+        agent = AgentInfo(name="test_agent", kind="native_worker", description="A test agent")
         assert agent.name == "test_agent"
         assert agent.kind == "native_worker"
 
@@ -60,29 +53,25 @@ class TestOpenAICompatE2E:
         from maos.api.models import OpenAIChatRequest, OpenAIMessage
 
         request = OpenAIChatRequest(
-            model="maos",
-            messages=[OpenAIMessage(role="user", content="Hello")]
+            model="maos", messages=[OpenAIMessage(role="user", content="Hello")]
         )
         assert request.model == "maos"
         assert not request.stream
 
     def test_openai_response_creation(self):
         """Test OpenAI-compatible response creation."""
+        import time
+
         from maos.api.models import (
             OpenAIChatResponse,
             OpenAIChoice,
             OpenAIMessage,
         )
-        import time
 
         response = OpenAIChatResponse(
             id="chatcmpl-123",
             created=int(time.time()),
-            choices=[
-                OpenAIChoice(
-                    message=OpenAIMessage(role="assistant", content="Hi!")
-                )
-            ]
+            choices=[OpenAIChoice(message=OpenAIMessage(role="assistant", content="Hi!"))],
         )
         assert response.object == "chat.completion"
         assert len(response.choices) == 1
@@ -122,7 +111,7 @@ class TestGraphStateE2E:
         state = create_initial_state(
             messages=[{"role": "user", "content": "Hello"}],
             roster=["worker1"],
-            thread_id="test-thread"
+            thread_id="test-thread",
         )
 
         assert state["task"] == "Hello"
@@ -133,19 +122,16 @@ class TestGraphStateE2E:
     def test_worker_result_creation(self):
         """Test WorkerResult creation."""
         from maos.graph.state import (
-            WorkerResult,
+            ResultMetadata,
             ResultOutput,
             ResultType,
-            ResultMetadata,
+            WorkerResult,
         )
 
         result = WorkerResult(
             from_agent="worker1",
-            output=ResultOutput(
-                type=ResultType.TEXT,
-                content="Task completed"
-            ),
-            metadata=ResultMetadata(duration_ms=100)
+            output=ResultOutput(type=ResultType.TEXT, content="Task completed"),
+            metadata=ResultMetadata(duration_ms=100),
         )
 
         assert result.from_agent == "worker1"
@@ -155,17 +141,13 @@ class TestGraphStateE2E:
     def test_worker_result_to_message(self):
         """Test WorkerResult to message conversion."""
         from maos.graph.state import (
-            WorkerResult,
             ResultOutput,
             ResultType,
+            WorkerResult,
         )
 
         result = WorkerResult(
-            from_agent="worker1",
-            output=ResultOutput(
-                type=ResultType.TEXT,
-                content="Done"
-            )
+            from_agent="worker1", output=ResultOutput(type=ResultType.TEXT, content="Done")
         )
 
         msg = result.to_message()

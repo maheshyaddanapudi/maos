@@ -1,7 +1,8 @@
 """LangChain-based LLM adapters using official provider packages."""
 
 import os
-from typing import Any, AsyncIterator, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -11,7 +12,6 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_core.tools import BaseTool
 
 from maos.config.models import LLMConfig, LLMProvider
 from maos.llm.base import (
@@ -24,7 +24,7 @@ from maos.llm.base import (
 )
 
 
-def _to_langchain_messages(messages: List[Message]) -> List[BaseMessage]:
+def _to_langchain_messages(messages: list[Message]) -> list[BaseMessage]:
     """Convert our Message format to LangChain messages."""
     result = []
     for msg in messages:
@@ -47,15 +47,13 @@ def _to_langchain_messages(messages: List[Message]) -> List[BaseMessage]:
             else:
                 result.append(AIMessage(content=msg.content, name=msg.name))
         elif msg.role == "tool":
-            result.append(ToolMessage(
-                content=msg.content,
-                tool_call_id=msg.tool_call_id or "",
-                name=msg.name
-            ))
+            result.append(
+                ToolMessage(content=msg.content, tool_call_id=msg.tool_call_id or "", name=msg.name)
+            )
     return result
 
 
-def _to_langchain_tools(tools: List[ToolDefinition]) -> List[dict]:
+def _to_langchain_tools(tools: list[ToolDefinition]) -> list[dict]:
     """Convert our ToolDefinition format to LangChain tool format."""
     return [
         {
@@ -64,7 +62,7 @@ def _to_langchain_tools(tools: List[ToolDefinition]) -> List[dict]:
                 "name": tool.name,
                 "description": tool.description,
                 "parameters": tool.parameters,
-            }
+            },
         }
         for tool in tools
     ]
@@ -85,10 +83,7 @@ class LangChainAdapter(LLMAdapter):
         self._config = config
 
     async def invoke(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None,
-        **kwargs: Any
+        self, messages: list[Message], tools: list[ToolDefinition] | None = None, **kwargs: Any
     ) -> LLMResponse:
         """Invoke the LangChain model."""
         lc_messages = _to_langchain_messages(messages)
@@ -103,17 +98,17 @@ class LangChainAdapter(LLMAdapter):
 
         # Extract tool calls
         tool_calls = []
-        if hasattr(response, 'tool_calls') and response.tool_calls:
+        if hasattr(response, "tool_calls") and response.tool_calls:
             for tc in response.tool_calls:
-                tool_calls.append(ToolCallRequest(
-                    id=tc.get("id", ""),
-                    name=tc.get("name", ""),
-                    arguments=tc.get("args", {})
-                ))
+                tool_calls.append(
+                    ToolCallRequest(
+                        id=tc.get("id", ""), name=tc.get("name", ""), arguments=tc.get("args", {})
+                    )
+                )
 
         # Extract usage if available
         usage = {}
-        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
             usage = {
                 "prompt_tokens": response.usage_metadata.get("input_tokens", 0),
                 "completion_tokens": response.usage_metadata.get("output_tokens", 0),
@@ -125,14 +120,11 @@ class LangChainAdapter(LLMAdapter):
             tool_calls=tool_calls,
             finish_reason="stop" if not tool_calls else "tool_calls",
             usage=usage,
-            model=self._config.model
+            model=self._config.model,
         )
 
     async def stream(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None,
-        **kwargs: Any
+        self, messages: list[Message], tools: list[ToolDefinition] | None = None, **kwargs: Any
     ) -> AsyncIterator[LLMChunk]:
         """Stream the LangChain model response."""
         lc_messages = _to_langchain_messages(messages)
@@ -145,12 +137,7 @@ class LangChainAdapter(LLMAdapter):
         # Stream
         async for chunk in model.astream(lc_messages, **kwargs):
             content = chunk.content if isinstance(chunk.content, str) else ""
-            yield LLMChunk(
-                content=content,
-                tool_calls=None,
-                finish_reason=None,
-                done=False
-            )
+            yield LLMChunk(content=content, tool_calls=None, finish_reason=None, done=False)
 
         yield LLMChunk(content="", tool_calls=None, finish_reason="stop", done=True)
 
@@ -201,7 +188,7 @@ def create_langchain_model(config: LLMConfig) -> BaseChatModel:
             api_key=api_key,
             base_url=config.base_url,
             timeout=config.timeout_seconds,
-            **common_kwargs
+            **common_kwargs,
         )
 
     elif config.provider == LLMProvider.ANTHROPIC:
@@ -211,10 +198,7 @@ def create_langchain_model(config: LLMConfig) -> BaseChatModel:
             api_key = os.environ.get("ANTHROPIC_API_KEY")
 
         return ChatAnthropic(
-            model=config.model,
-            api_key=api_key,
-            timeout=config.timeout_seconds,
-            **common_kwargs
+            model=config.model, api_key=api_key, timeout=config.timeout_seconds, **common_kwargs
         )
 
     elif config.provider == LLMProvider.GOOGLE:
@@ -223,11 +207,7 @@ def create_langchain_model(config: LLMConfig) -> BaseChatModel:
         if not api_key_env:
             api_key = os.environ.get("GOOGLE_API_KEY")
 
-        return ChatGoogleGenerativeAI(
-            model=config.model,
-            google_api_key=api_key,
-            **common_kwargs
-        )
+        return ChatGoogleGenerativeAI(model=config.model, google_api_key=api_key, **common_kwargs)
 
     elif config.provider == LLMProvider.OLLAMA:
         from langchain_community.chat_models import ChatOllama
@@ -235,7 +215,35 @@ def create_langchain_model(config: LLMConfig) -> BaseChatModel:
         return ChatOllama(
             model=config.model,
             base_url=config.base_url or "http://localhost:11434",
-            **common_kwargs
+            **common_kwargs,
+        )
+
+    elif config.provider == LLMProvider.OPENAI_COMPATIBLE:
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            model=config.model,
+            api_key=api_key or "not-needed",
+            base_url=config.base_url,
+            timeout=config.timeout_seconds,
+            **common_kwargs,
+        )
+
+    elif config.provider == LLMProvider.AZURE_OPENAI:
+        from langchain_openai import AzureChatOpenAI
+
+        if not api_key_env:
+            api_key = os.environ.get("AZURE_OPENAI_API_KEY")
+
+        azure_endpoint = config.base_url or os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+
+        return AzureChatOpenAI(
+            azure_deployment=config.model,
+            api_key=api_key,
+            azure_endpoint=azure_endpoint,
+            api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+            timeout=config.timeout_seconds,
+            **common_kwargs,
         )
 
     else:

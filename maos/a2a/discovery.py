@@ -1,14 +1,13 @@
 """A2A agent discovery."""
 
 import asyncio
-from typing import List, Optional
 from urllib.parse import urljoin
 
 import httpx
 import structlog
 
-from maos.config.models import A2AConfig, A2AImportPolicy
 from maos.a2a.models import AgentCard, DiscoveredAgent, HostIndex
+from maos.config.models import A2AConfig, A2AImportPolicy
 
 logger = structlog.get_logger()
 
@@ -16,7 +15,7 @@ logger = structlog.get_logger()
 class A2ADiscovery:
     """Discover external A2A agents from seed URLs."""
 
-    def __init__(self, http_client: Optional[httpx.AsyncClient] = None):
+    def __init__(self, http_client: httpx.AsyncClient | None = None):
         """
         Initialize A2A discovery.
 
@@ -26,7 +25,7 @@ class A2ADiscovery:
         self._http_client = http_client
         self._owns_client = http_client is None
 
-    async def discover(self, config: A2AConfig) -> List[DiscoveredAgent]:
+    async def discover(self, config: A2AConfig) -> list[DiscoveredAgent]:
         """
         Discover agents from seed URLs.
 
@@ -46,9 +45,7 @@ class A2ADiscovery:
 
         # Create client if needed
         if self._http_client is None:
-            self._http_client = httpx.AsyncClient(
-                timeout=config.discovery.timeout_seconds
-            )
+            self._http_client = httpx.AsyncClient(timeout=config.discovery.timeout_seconds)
 
         try:
             # Discover agents from all seeds
@@ -63,7 +60,7 @@ class A2ADiscovery:
             logger.info(
                 "a2a_discovery_complete",
                 total_discovered=len(discovered),
-                after_policy=len(filtered)
+                after_policy=len(filtered),
             )
 
             return filtered
@@ -73,12 +70,9 @@ class A2ADiscovery:
                 await self._http_client.aclose()
                 self._http_client = None
 
-    async def _discover_parallel(self, config: A2AConfig) -> List[DiscoveredAgent]:
+    async def _discover_parallel(self, config: A2AConfig) -> list[DiscoveredAgent]:
         """Discover agents from all seeds in parallel."""
-        tasks = [
-            self._discover_from_seed(seed, config)
-            for seed in config.discovery.seeds
-        ]
+        tasks = [self._discover_from_seed(seed, config) for seed in config.discovery.seeds]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         discovered = []
@@ -90,7 +84,7 @@ class A2ADiscovery:
 
         return discovered
 
-    async def _discover_sequential(self, config: A2AConfig) -> List[DiscoveredAgent]:
+    async def _discover_sequential(self, config: A2AConfig) -> list[DiscoveredAgent]:
         """Discover agents from all seeds sequentially."""
         discovered = []
         for seed in config.discovery.seeds:
@@ -101,11 +95,7 @@ class A2ADiscovery:
                 logger.warning("seed_discovery_failed", seed=seed, error=str(e))
         return discovered
 
-    async def _discover_from_seed(
-        self,
-        seed_url: str,
-        config: A2AConfig
-    ) -> List[DiscoveredAgent]:
+    async def _discover_from_seed(self, seed_url: str, config: A2AConfig) -> list[DiscoveredAgent]:
         """Discover agents from a single seed URL."""
         discovered = []
 
@@ -114,8 +104,7 @@ class A2ADiscovery:
         if host_index:
             for agent_info in host_index.agents:
                 card_path = agent_info.get(
-                    "agent_card_path",
-                    f"{agent_info['path']}/.well-known/agent.json"
+                    "agent_card_path", f"{agent_info['path']}/.well-known/agent.json"
                 )
                 card_url = urljoin(seed_url, card_path)
                 agent = await self._fetch_and_create_agent(card_url, config)
@@ -133,11 +122,7 @@ class A2ADiscovery:
 
         return discovered
 
-    async def _fetch_host_index(
-        self,
-        base_url: str,
-        config: A2AConfig
-    ) -> Optional[HostIndex]:
+    async def _fetch_host_index(self, base_url: str, config: A2AConfig) -> HostIndex | None:
         """Fetch host index from a multi-agent host."""
         index_url = urljoin(base_url, config.discovery.host_index_path)
         try:
@@ -149,10 +134,8 @@ class A2ADiscovery:
         return None
 
     async def _fetch_and_create_agent(
-        self,
-        card_url: str,
-        config: A2AConfig
-    ) -> Optional[DiscoveredAgent]:
+        self, card_url: str, config: A2AConfig
+    ) -> DiscoveredAgent | None:
         """Fetch agent card and create DiscoveredAgent."""
         card = await self._fetch_agent_card(card_url)
         if card is None:
@@ -168,10 +151,10 @@ class A2ADiscovery:
             card=card,
             source_url=card_url,
             endpoint=endpoint,
-            import_mode="node" if config.import_policy.mode == "langgraph_nodes" else "tool"
+            import_mode="node" if config.import_policy.mode == "langgraph_nodes" else "tool",
         )
 
-    async def _fetch_agent_card(self, url: str) -> Optional[AgentCard]:
+    async def _fetch_agent_card(self, url: str) -> AgentCard | None:
         """Fetch and parse an agent card."""
         try:
             response = await self._http_client.get(url)
@@ -185,38 +168,28 @@ class A2ADiscovery:
         return None
 
     def _apply_policy(
-        self,
-        agents: List[DiscoveredAgent],
-        policy: A2AImportPolicy
-    ) -> List[DiscoveredAgent]:
+        self, agents: list[DiscoveredAgent], policy: A2AImportPolicy
+    ) -> list[DiscoveredAgent]:
         """Apply import policy filters to discovered agents."""
         filtered = agents
 
         # Filter by tags
         if policy.include_tags:
             filtered = [
-                a for a in filtered
-                if any(t in a.card.all_tags for t in policy.include_tags)
+                a for a in filtered if any(t in a.card.all_tags for t in policy.include_tags)
             ]
 
         if policy.exclude_tags:
             filtered = [
-                a for a in filtered
-                if not any(t in a.card.all_tags for t in policy.exclude_tags)
+                a for a in filtered if not any(t in a.card.all_tags for t in policy.exclude_tags)
             ]
 
         # Filter by names
         if policy.include_names:
-            filtered = [
-                a for a in filtered
-                if a.card.name in policy.include_names
-            ]
+            filtered = [a for a in filtered if a.card.name in policy.include_names]
 
         if policy.exclude_names:
-            filtered = [
-                a for a in filtered
-                if a.card.name not in policy.exclude_names
-            ]
+            filtered = [a for a in filtered if a.card.name not in policy.exclude_names]
 
         # Apply limit
-        return filtered[:policy.max_agents]
+        return filtered[: policy.max_agents]

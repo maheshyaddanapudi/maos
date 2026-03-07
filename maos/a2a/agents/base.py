@@ -7,7 +7,7 @@ discovered and called by the supervisor via the A2A protocol.
 import asyncio
 import socket
 from abc import abstractmethod
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request
@@ -42,8 +42,8 @@ class ExternalAgentServer(BaseAgentExecutor):
         name: str,
         description: str = "",
         host: str = "127.0.0.1",
-        port: Optional[int] = None,
-        skills: Optional[List[Dict[str, str]]] = None,
+        port: int | None = None,
+        skills: list[dict[str, str]] | None = None,
     ):
         """
         Initialize the external agent server.
@@ -59,8 +59,8 @@ class ExternalAgentServer(BaseAgentExecutor):
         self._host = host
         self._port = port or find_free_port()
         self._skills = skills or []
-        self._app: Optional[FastAPI] = None
-        self._server_task: Optional[asyncio.Task] = None
+        self._app: FastAPI | None = None
+        self._server_task: asyncio.Task | None = None
         self._running = False
 
     @property
@@ -79,7 +79,7 @@ class ExternalAgentServer(BaseAgentExecutor):
         return f"http://{self._host}:{self._port}/.well-known/agent.json"
 
     @abstractmethod
-    async def _process(self, task: str, context: Optional[Dict[str, Any]] = None) -> str:
+    async def _process(self, task: str, context: dict[str, Any] | None = None) -> str:
         """
         Process a task and return the result.
 
@@ -101,11 +101,7 @@ class ExternalAgentServer(BaseAgentExecutor):
             return AgentOutput(content=result, success=True)
         except Exception as e:
             logger.error("agent_execution_failed", agent=self.name, error=str(e))
-            return AgentOutput(
-                content="",
-                success=False,
-                error=str(e)
-            )
+            return AgentOutput(content="", success=False, error=str(e))
 
     def _create_app(self) -> FastAPI:
         """Create the FastAPI application."""
@@ -124,30 +120,25 @@ class ExternalAgentServer(BaseAgentExecutor):
 
         return app
 
-    def _get_agent_card(self) -> Dict[str, Any]:
+    def _get_agent_card(self) -> dict[str, Any]:
         """Generate the A2A agent card."""
         return {
             "protocolVersion": "1.0",
             "name": self.name,
             "description": self.description,
             "version": "1.0.0",
-            "supportedInterfaces": [
-                {
-                    "url": self.endpoint,
-                    "protocolBinding": "JSONRPC"
-                }
-            ],
+            "supportedInterfaces": [{"url": self.endpoint, "protocolBinding": "JSONRPC"}],
             "capabilities": {
                 "streaming": False,
                 "pushNotifications": False,
-                "stateTransitionHistory": False
+                "stateTransitionHistory": False,
             },
             "defaultInputModes": ["text/plain"],
             "defaultOutputModes": ["text/plain"],
-            "skills": self._skills
+            "skills": self._skills,
         }
 
-    async def _handle_a2a_request(self, request: Dict) -> Dict:
+    async def _handle_a2a_request(self, request: dict) -> dict:
         """Handle an A2A JSON-RPC request."""
         request_id = request.get("id", "unknown")
         method = request.get("method", "")
@@ -176,12 +167,10 @@ class ExternalAgentServer(BaseAgentExecutor):
                             "status": "COMPLETED",
                             "result": {
                                 "role": "agent",
-                                "parts": [
-                                    {"type": "text", "text": str(result)}
-                                ]
-                            }
+                                "parts": [{"type": "text", "text": str(result)}],
+                            },
                         }
-                    }
+                    },
                 }
 
             except Exception as e:
@@ -190,21 +179,14 @@ class ExternalAgentServer(BaseAgentExecutor):
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "result": {
-                        "task": {
-                            "id": f"task-{request_id}",
-                            "status": "FAILED",
-                            "error": str(e)
-                        }
-                    }
+                        "task": {"id": f"task-{request_id}", "status": "FAILED", "error": str(e)}
+                    },
                 }
 
         return {
             "jsonrpc": "2.0",
             "id": request_id,
-            "error": {
-                "code": -32601,
-                "message": f"Method not found: {method}"
-            }
+            "error": {"code": -32601, "message": f"Method not found: {method}"},
         }
 
     async def start(self) -> None:
@@ -224,11 +206,7 @@ class ExternalAgentServer(BaseAgentExecutor):
         server = uvicorn.Server(config)
 
         self._running = True
-        logger.info(
-            "starting_external_agent",
-            name=self.name,
-            endpoint=self.endpoint
-        )
+        logger.info("starting_external_agent", name=self.name, endpoint=self.endpoint)
 
         await server.serve()
 
@@ -254,11 +232,7 @@ class ExternalAgentServer(BaseAgentExecutor):
         # Wait briefly for server to start
         await asyncio.sleep(0.1)
 
-        logger.info(
-            "started_external_agent_background",
-            name=self.name,
-            endpoint=self.endpoint
-        )
+        logger.info("started_external_agent_background", name=self.name, endpoint=self.endpoint)
 
     async def stop(self) -> None:
         """Stop the A2A server."""
@@ -272,7 +246,7 @@ class ExternalAgentServer(BaseAgentExecutor):
         logger.info("stopped_external_agent", name=self.name)
 
     @property
-    def app(self) -> Optional[FastAPI]:
+    def app(self) -> FastAPI | None:
         """Get the FastAPI app (for testing)."""
         if self._app is None:
             self._app = self._create_app()

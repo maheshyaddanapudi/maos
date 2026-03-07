@@ -13,7 +13,7 @@ logger = structlog.get_logger()
 class A2AHostServer:
     """Multi-agent A2A host server."""
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 9001):
+    def __init__(self, host: str = "127.0.0.1", port: int = 9001):
         """
         Initialize the host server.
 
@@ -40,14 +40,14 @@ class A2AHostServer:
         async def get_agent_card(name: str) -> dict[str, Any] | JSONResponse:
             """Return agent card for specific agent."""
             if name not in self._agents:
-                return JSONResponse(status_code=404, content={"error": f"Agent '{name}' not found"})
+                return JSONResponse(status_code=404, content={"error": "Agent not found"})
             return self._agents[name].get_card()
 
         @self._app.post("/a2a/{name}")
         async def handle_agent_request(name: str, request: Request) -> dict | JSONResponse:
             """Handle A2A request for specific agent."""
             if name not in self._agents:
-                return JSONResponse(status_code=404, content={"error": f"Agent '{name}' not found"})
+                return JSONResponse(status_code=404, content={"error": "Agent not found"})
 
             body = await request.json()
             response = await self._agents[name].handle_request(body)

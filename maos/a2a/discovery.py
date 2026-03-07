@@ -11,6 +11,50 @@ from maos.config.models import A2AConfig, A2AImportPolicy
 
 logger = structlog.get_logger()
 
+# Private/internal IP ranges that should not be accessed during discovery
+_BLOCKED_IP_PREFIXES = (
+    "127.",
+    "10.",
+    "192.168.",
+    "0.",
+    "169.254.",  # Link-local
+    "[::1]",     # IPv6 loopback
+    "[fc",       # IPv6 unique local
+    "[fd",       # IPv6 unique local
+    "[fe80:",    # IPv6 link-local
+)
+
+_BLOCKED_HOSTNAMES = {
+    "localhost",
+    "metadata.google.internal",
+    "169.254.169.254",  # Cloud metadata endpoint
+}
+
+
+def _is_internal_url(url: str) -> bool:
+    """Check if URL points to an internal/private network address."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+
+    if hostname in _BLOCKED_HOSTNAMES:
+        return True
+
+    if any(hostname.startswith(prefix) for prefix in _BLOCKED_IP_PREFIXES):
+        return True
+
+    # Check for 172.16.0.0/12 range
+    if hostname.startswith("172."):
+        try:
+            second_octet = int(hostname.split(".")[1])
+            if 16 <= second_octet <= 31:
+                return True
+        except (IndexError, ValueError):
+            pass
+
+    return False
+
 
 class A2ADiscovery:
     """Discover external A2A agents from seed URLs."""
@@ -97,6 +141,10 @@ class A2ADiscovery:
 
     async def _discover_from_seed(self, seed_url: str, config: A2AConfig) -> list[DiscoveredAgent]:
         """Discover agents from a single seed URL."""
+        if _is_internal_url(seed_url):
+            logger.warning("ssrf_blocked_seed_url", url=seed_url)
+            return []
+
         discovered = []
 
         # Try host index first
@@ -137,6 +185,10 @@ class A2ADiscovery:
         self, card_url: str, config: A2AConfig
     ) -> DiscoveredAgent | None:
         """Fetch agent card and create DiscoveredAgent."""
+        if _is_internal_url(card_url):
+            logger.warning("ssrf_blocked_card_url", url=card_url)
+            return None
+
         card = await self._fetch_agent_card(card_url)
         if card is None:
             return None

@@ -154,7 +154,7 @@ async def get_agent(
                     name=name, kind="external", description=getattr(external, "description", None)
                 )
 
-    raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    raise HTTPException(status_code=404, detail="Agent not found")
 
 
 @router.get("/roster")

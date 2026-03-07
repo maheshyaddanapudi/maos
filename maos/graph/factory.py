@@ -115,7 +115,13 @@ def create_external_agent_graph(external: ExternalAgent, a2a_client: A2AClient) 
 
         except Exception as e:
             logger.error("external_agent_call_failed", agent=external.name, error=str(e))
-            return {"messages": [AIMessage(content=f"Error calling {external.name}: {e}")]}
+            return {
+                "messages": [
+                    AIMessage(
+                        content=f"External agent '{external.name}' is currently unavailable."
+                    )
+                ]
+            }
 
     # Build simple graph
     graph = StateGraph(ExternalState)
@@ -317,7 +323,7 @@ class GraphFactory:
                 return str(result)
             except Exception as e:
                 logger.error("tool_invocation_failed", tool=tool.name, error=str(e))
-                return f"Error: {e}"
+                return f"Tool '{tool.name}' encountered an error."
 
         tool_kwargs = {
             "coroutine": invoke_tool,

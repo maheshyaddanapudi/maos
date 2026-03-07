@@ -181,20 +181,21 @@ class ConfigLoader:
                     break
                 current = current[part]
             else:
+                # Block security-related overrides via env vars
+                if any(part in _SECURITY_PATHS for part in path_parts):
+                    logger.warning(
+                        "security_config_env_override_blocked",
+                        env_var=key,
+                        message="Security-related config override via env var blocked",
+                    )
+                    continue
+
                 # Try to parse as JSON for complex values, otherwise use string
                 final_key = path_parts[-1]
                 try:
                     current[final_key] = json.loads(value)
                 except json.JSONDecodeError:
                     current[final_key] = value
-
-                # Warn about security-related overrides
-                if any(part in _SECURITY_PATHS for part in path_parts):
-                    logger.warning(
-                        "security_config_env_override",
-                        env_var=key,
-                        message="Security-related configuration overridden via environment variable",
-                    )
 
         return result
 

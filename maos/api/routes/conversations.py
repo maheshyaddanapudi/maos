@@ -16,6 +16,8 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from maos.api.thread_id import _VALID_THREAD_ID
+
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -180,6 +182,9 @@ async def get_conversation(
     Returns the complete message history and current state (whether
     the conversation is waiting for user input, etc.).
     """
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
+
     graph = context.get("graph")
 
     if not graph:
@@ -274,6 +279,9 @@ async def delete_conversation(
     With in-memory checkpointer, this is equivalent to clearing the thread.
     With SQLite/Postgres, this removes the records from the database.
     """
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
+
     conversation_store = context.get("conversation_store")
     graph = context.get("graph")
 
@@ -317,6 +325,9 @@ async def get_conversation_status(
     Quick endpoint to check if a conversation exists and whether
     it's waiting for user input (interrupted).
     """
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
+
     graph = context.get("graph")
 
     if not graph:

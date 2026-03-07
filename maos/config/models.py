@@ -213,7 +213,7 @@ class UIConfig(BaseModel):
 class APISecurityConfig(BaseModel):
     """Security configuration for the API layer."""
 
-    auth_enabled: bool = False
+    auth_enabled: bool = True
     api_key_env: str | None = Field(
         default=None,
         description=("Environment variable containing comma-separated API keys"),

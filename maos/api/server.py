@@ -113,8 +113,8 @@ def create_app(
         CORSMiddleware,
         allow_origins=serving.api.cors_origins,
         allow_credentials="*" not in serving.api.cors_origins,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
     )
 
     # --- Security middleware ---
@@ -270,7 +270,7 @@ async def default_lifespan(app: FastAPI):
     logger.info("maos_shutting_down")
 
 
-async def run_server(app: FastAPI, host: str = "0.0.0.0", port: int = 7777) -> None:
+async def run_server(app: FastAPI, host: str = "127.0.0.1", port: int = 7777) -> None:
     """
     Run the server using uvicorn.
 

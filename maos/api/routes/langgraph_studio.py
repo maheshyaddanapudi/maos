@@ -11,6 +11,7 @@ Endpoints:
 """
 
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -33,9 +34,13 @@ from maos.api.models import (
     ThreadState,
     ThreadStateUpdate,
 )
+from maos.api.thread_id import _VALID_THREAD_ID
 from maos.graph.state import create_initial_state
 
 logger = structlog.get_logger()
+
+# UUID or general safe ID pattern for run_id, assistant_id, etc.
+_VALID_RESOURCE_ID = re.compile(r"^[a-zA-Z0-9\-_.]{1,128}$")
 
 router = APIRouter(tags=["langgraph-studio"])
 
@@ -202,6 +207,8 @@ async def create_thread(
 @router.get("/threads/{thread_id}", response_model=Thread)
 async def get_thread(thread_id: str, context: dict[str, Any] = Depends(get_app_context)) -> Thread:
     """Get a thread by ID."""
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
     if thread_id not in _threads:
         raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
 
@@ -213,6 +220,8 @@ async def delete_thread(
     thread_id: str, context: dict[str, Any] = Depends(get_app_context)
 ) -> dict[str, str]:
     """Delete a thread."""
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
     if thread_id not in _threads:
         raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
 
@@ -232,6 +241,8 @@ async def get_thread_state(
     thread_id: str, context: dict[str, Any] = Depends(get_app_context)
 ) -> ThreadState:
     """Get the state of a thread."""
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
     graph = context.get("graph")
 
     if not graph:
@@ -276,6 +287,8 @@ async def update_thread_state(
     thread_id: str, request: ThreadStateUpdate, context: dict[str, Any] = Depends(get_app_context)
 ) -> ThreadState:
     """Update the state of a thread."""
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
     graph = context.get("graph")
 
     if not graph:
@@ -305,6 +318,8 @@ async def create_run(
     thread_id: str, request: RunCreate, context: dict[str, Any] = Depends(get_app_context)
 ) -> Run:
     """Create and execute a run (non-streaming)."""
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
     graph = context.get("graph")
     agent_registry = context.get("agent_registry")
 
@@ -396,6 +411,8 @@ async def create_run_stream(
     thread_id: str, request: RunCreate, context: dict[str, Any] = Depends(get_app_context)
 ):
     """Create and execute a run with streaming."""
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
     graph = context.get("graph")
     agent_registry = context.get("agent_registry")
 
@@ -521,7 +538,27 @@ def _format_studio_event(event: dict[str, Any]) -> str | None:
     if event_name == "on_chain_stream":
         chunk = event_data.get("chunk", {})
         if chunk:
-            return f"event: updates\ndata: {json.dumps(chunk)}\n\n"
+            # Filter to only expose safe message content, not raw internal state
+            safe_chunk = {}
+            if "messages" in chunk:
+                safe_messages = []
+                for msg in chunk["messages"]:
+                    if hasattr(msg, "content"):
+                        safe_messages.append({
+                            "role": getattr(msg, "type", "unknown"),
+                            "content": str(msg.content),
+                            "name": getattr(msg, "name", None),
+                        })
+                    elif isinstance(msg, dict):
+                        safe_messages.append({
+                            "role": msg.get("role", "unknown"),
+                            "content": str(msg.get("content", "")),
+                            "name": msg.get("name"),
+                        })
+                safe_chunk["messages"] = safe_messages
+            else:
+                safe_chunk = chunk
+            return f"event: updates\ndata: {json.dumps(safe_chunk)}\n\n"
 
     elif event_name == "on_chat_model_stream":
         chunk = event_data.get("chunk", {})
@@ -542,6 +579,10 @@ async def get_run(
     thread_id: str, run_id: str, context: dict[str, Any] = Depends(get_app_context)
 ) -> Run:
     """Get a run by ID."""
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
+    if not _VALID_RESOURCE_ID.match(run_id):
+        raise HTTPException(status_code=400, detail="Invalid run ID format")
     if run_id not in _runs:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
@@ -560,6 +601,8 @@ async def list_runs(
     context: dict[str, Any] = Depends(get_app_context),
 ) -> list[Run]:
     """List runs for a thread."""
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
     runs = [r for r in _runs.values() if r.thread_id == thread_id]
     runs.sort(key=lambda r: r.created_at, reverse=True)
     return runs[offset : offset + limit]
@@ -578,6 +621,10 @@ async def resume_run(
     context: dict[str, Any] = Depends(get_app_context),
 ) -> Run:
     """Resume an interrupted run."""
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
+    if not _VALID_RESOURCE_ID.match(run_id):
+        raise HTTPException(status_code=400, detail="Invalid run ID format")
     if run_id not in _runs:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 

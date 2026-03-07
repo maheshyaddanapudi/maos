@@ -498,7 +498,7 @@ Examples:
     serve_parser = subparsers.add_parser("serve", help="Start the API server")
     serve_parser.add_argument("-c", "--config", required=True, help="Path to configuration file")
     serve_parser.add_argument(
-        "--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)"
+        "--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)"
     )
     serve_parser.add_argument(
         "--port", type=int, default=7777, help="Port to listen on (default: 7777)"

@@ -195,6 +195,8 @@ async def resume_chat(request: ResumeRequest, context: dict[str, Any] = Depends(
         raise HTTPException(status_code=503, detail="Graph not initialized")
 
     thread_id = request.thread_id
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
     config = {"configurable": {"thread_id": thread_id}}
 
     try:

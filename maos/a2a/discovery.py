@@ -89,7 +89,7 @@ class A2ADiscovery:
 
         # Create client if needed
         if self._http_client is None:
-            self._http_client = httpx.AsyncClient(timeout=config.discovery.timeout_seconds)
+            self._http_client = httpx.AsyncClient(timeout=config.discovery.timeout_seconds, follow_redirects=False)
 
         try:
             # Discover agents from all seeds

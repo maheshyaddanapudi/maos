@@ -16,7 +16,7 @@ logger = structlog.get_logger()
 class AuthConfig(BaseModel):
     """Authentication configuration."""
 
-    enabled: bool = False
+    enabled: bool = True
     api_keys: list[SecretStr] = Field(default_factory=list)
     exclude_paths: list[str] = Field(
         default_factory=lambda: [

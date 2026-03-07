@@ -1,11 +1,15 @@
 """Agent listing endpoint."""
 
+import re
 from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends
 
 from maos.api.models import AgentInfo, AgentListResponse
+
+# Safe identifier pattern for agent names
+_VALID_AGENT_NAME = re.compile(r"^[a-zA-Z0-9_\-]{1,128}$")
 
 logger = structlog.get_logger()
 
@@ -107,6 +111,9 @@ async def get_agent(
         Agent information.
     """
     from fastapi import HTTPException
+
+    if not _VALID_AGENT_NAME.match(agent_name):
+        raise HTTPException(status_code=400, detail="Invalid agent name format")
 
     agent_registry = context.get("agent_registry")
     tool_registry = context.get("tool_registry")

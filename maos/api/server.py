@@ -139,6 +139,12 @@ def create_app(
         enabled=security.auth_enabled,
         api_keys=api_keys,
     )
+    if auth_cfg.enabled and not api_keys:
+        logger.warning(
+            "auth_enabled_no_keys",
+            message="Auth is enabled but no API keys configured — all requests will be rejected. "
+            "Set the api_key_env config or disable auth.",
+        )
     app.add_middleware(AuthMiddleware, auth_config=auth_cfg)
 
     # Request ID correlation

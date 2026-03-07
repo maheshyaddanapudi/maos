@@ -185,6 +185,8 @@ async def create_thread(
 ) -> Thread:
     """Create a new thread."""
     thread_id = request.thread_id or str(uuid.uuid4())
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
     now = _now_iso()
 
     if thread_id in _threads:
@@ -557,7 +559,8 @@ def _format_studio_event(event: dict[str, Any]) -> str | None:
                         })
                 safe_chunk["messages"] = safe_messages
             else:
-                safe_chunk = chunk
+                # Non-message chunks: only pass through known-safe event keys
+                safe_chunk = {}
             return f"event: updates\ndata: {json.dumps(safe_chunk)}\n\n"
 
     elif event_name == "on_chat_model_stream":

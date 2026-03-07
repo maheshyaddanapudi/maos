@@ -29,9 +29,18 @@ class A2AClient:
         Initialize A2A client.
 
         Args:
-            http_client: HTTP client to use.
+            http_client: HTTP client to use. Must have follow_redirects=False
+                for SSRF safety. If None, a safe client is created automatically.
             timeout: Default request timeout.
         """
+        if http_client is not None:
+            # Warn if injected client might follow redirects (SSRF risk)
+            if getattr(http_client, "_follow_redirects", None) is not False:
+                logger.warning(
+                    "a2a_client_unsafe_http_client",
+                    message="Injected http_client may follow redirects; "
+                    "use follow_redirects=False for SSRF safety",
+                )
         self._http_client = http_client
         self._owns_client = http_client is None
         self._timeout = timeout

@@ -40,6 +40,11 @@ def _is_internal_url(url: str) -> bool:
     from urllib.parse import urlparse
 
     parsed = urlparse(url)
+
+    # Only allow http and https schemes
+    if parsed.scheme not in ("http", "https"):
+        return True
+
     hostname = (parsed.hostname or "").lower()
 
     if hostname in _BLOCKED_HOSTNAMES:
@@ -73,8 +78,16 @@ class A2ADiscovery:
         Initialize A2A discovery.
 
         Args:
-            http_client: HTTP client to use. Creates one if not provided.
+            http_client: HTTP client to use. Must have follow_redirects=False
+                for SSRF safety. If None, a safe client is created automatically.
         """
+        if http_client is not None:
+            if getattr(http_client, "_follow_redirects", None) is not False:
+                logger.warning(
+                    "a2a_discovery_unsafe_http_client",
+                    message="Injected http_client may follow redirects; "
+                    "use follow_redirects=False for SSRF safety",
+                )
         self._http_client = http_client
         self._owns_client = http_client is None
 

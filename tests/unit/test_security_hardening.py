@@ -135,12 +135,26 @@ class TestIsInternalUrl:
     # --- Edge cases ---
 
     def test_empty_url(self):
-        """Empty URL should not crash."""
-        assert _is_internal_url("") is False
+        """Empty URL should be blocked (no valid scheme)."""
+        assert _is_internal_url("") is True
 
     def test_no_hostname(self):
         """URL with no hostname should not crash."""
         assert _is_internal_url("http:///path") is False
+
+    # --- Scheme validation ---
+
+    def test_file_scheme_blocked(self):
+        """file:// URLs must be blocked."""
+        assert _is_internal_url("file:///etc/passwd") is True
+
+    def test_ftp_scheme_blocked(self):
+        """ftp:// URLs must be blocked."""
+        assert _is_internal_url("ftp://example.com/file") is True
+
+    def test_gopher_scheme_blocked(self):
+        """gopher:// URLs must be blocked."""
+        assert _is_internal_url("gopher://evil.com") is True
 
 
 # =============================================================================
@@ -325,10 +339,11 @@ class TestEnvOverrideSecurityBlocking:
 
     def test_blocks_mcp_servers_override(self, monkeypatch):
         """Env vars targeting 'mcp_servers' paths should be blocked."""
-        monkeypatch.setenv("MAOS_MCP_SERVERS_EVIL_COMMAND", "rm -rf /")
+        monkeypatch.setenv("MAOS_MCP_SERVERS_EVIL_URL", "http://evil.com")
         loader = ConfigLoader()
         result = loader._apply_env_overrides({})
-        assert "evil" not in result.get("mcp_servers", {})
+        # Split: ["mcp", "servers", "evil", "url"]. Pair "mcp_servers" matches.
+        assert "url" not in result.get("mcp", {}).get("servers", {}).get("evil", {})
 
     def test_blocks_command_override(self, monkeypatch):
         """Env vars targeting 'command' paths should be blocked."""

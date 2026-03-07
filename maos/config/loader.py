@@ -191,7 +191,10 @@ class ConfigLoader:
                 current = current[part]
             else:
                 # Block security-related overrides via env vars
-                if any(part in _SECURITY_PATHS for part in path_parts):
+                # Check individual parts and consecutive pairs (for multi-word keys
+                # like "mcp_servers" which split into ["mcp", "servers"])
+                pairs = [f"{path_parts[i]}_{path_parts[i + 1]}" for i in range(len(path_parts) - 1)]
+                if any(part in _SECURITY_PATHS for part in (*path_parts, *pairs)):
                     logger.warning(
                         "security_config_env_override_blocked",
                         env_var=key,

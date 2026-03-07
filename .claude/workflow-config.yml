@@ -1,0 +1,36 @@
+# Workflow Configuration for MAOS Claude Code
+
+# Maximum number of review → remediate → re-review cycles before
+# stopping auto-remediation and escalating to the user.
+max_review_remediate_cycles: 2
+
+# Whether the main agent auto-remediates REQUEST_CHANGES verdicts
+# without asking the user. Set to true for fully automated workflows.
+human_in_loop: false
+
+# Workflow chain for new features (agent execution order)
+new_feature_chain:
+  - planner
+  - implementer
+  - integration-specialist
+  - test-engineer
+  - reviewer
+
+# Workflow chain for bug fixes (shorter chain)
+bug_fix_chain:
+  - planner
+  - implementer
+  - test-engineer
+  - reviewer
+
+# Workflow chain for refactoring
+refactor_chain:
+  - planner
+  - implementer
+  - test-engineer
+  - reviewer
+
+# Agents that can run in background (read-only, no Write/Bash)
+background_eligible:
+  - reviewer
+  - security-auditor

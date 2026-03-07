@@ -183,6 +183,18 @@ MAOS enters a rapidly maturing multi-agent orchestration market projected at $10
 - *MAOS exploits*: Domain-specific vs general-purpose.
 - *Learn from*: SOP-encoding approach for enterprise workflows.
 
+**Julep** — Closest conceptual competitor. YAML-defined serverless workflows with Temporal-based execution, built-in RAG, 100+ tools, persistent memory, auto-retries.
+- *MAOS exploits*: Julep lacks MCP/A2A protocols and LangGraph's graph flexibility.
+- *Learn from*: YAML workflow primitives (conditional logic, loops, error handling), serverless scaling model.
+
+**Agno (formerly Phidata)** — Multi-modal by default, claims 5000x faster instantiation than LangGraph, 50x more memory efficient. Guardrails + 100+ integrations, per-user/session isolation.
+- *MAOS exploits*: Performance claims unverified at scale. MAOS's LangGraph foundation is battle-tested.
+- *Learn from*: Multi-modal support, pre-built agent templates, performance optimization focus.
+
+**AWS Strands Agents + Bedrock AgentCore** — Open-source framework + managed runtime. Policy-as-code tool controls, 13 built-in evaluators, OAuth/OIDC identity, serverless microVMs.
+- *MAOS exploits*: Cloud lock-in. MAOS runs anywhere.
+- *Learn from*: Policy-as-code for tool permissions, built-in evaluation suite, identity management.
+
 #### Enterprise Platforms
 
 **AWS Bedrock Agents** — GA multi-agent with supervisor-collaborator (similar to MAOS). AgentCore adds A2A.
@@ -231,30 +243,44 @@ MAOS occupies a **specific and defensible niche** that no single competitor full
 
 ## 5. Strategic Gaps — What Big Players Have That MAOS Doesn't
 
-### Quick Wins (Days, Not Months)
+### Quick Wins (2-5 Days Each)
+
+| # | Feature | Who Has It | Effort | Impact | Notes |
+|---|---------|-----------|--------|--------|-------|
+| 1 | **Cost/token usage tracking** | LangSmith, Langfuse, AgentCore, OpenAI SDK | 2-3 days | Very High | `observability.py` has OTel hooks. Add per-request token counting + cost calc by model. Integrate Langfuse (open-source) for dashboards. |
+| 2 | **Input/output guardrails** | OpenAI SDK, NeMo Guardrails, AgentCore, Agno | 3-5 days | Very High | Add validation hooks that run in parallel with agent execution. PII detection, topic filtering, prompt injection detection. Start rule-based, add ML later. |
+| 3 | **Human-in-the-loop as config** | LangGraph, OpenAI SDK, AgentCore, CrewAI | 3-5 days | Very High | LangGraph already supports `interrupt()`. Expose as YAML: `require_approval: true` on agents/tools. Build approval endpoint. |
+| 4 | **LLM response caching** | Redis LangCache, various | 2-3 days | High | Exact-match cache by prompt hash in `maos/llm/`. 50-80% cost reduction. Config per-agent: `cache_ttl: 3600`. |
+| 5 | **Rate limiting per agent/model** | LiteLLM, AgentCore, Agno | 1-2 days | High | Extend `resilience.py` with token bucket per model/agent combo. Prevents API quota exhaustion. |
+| 6 | **Output schema validation** | OpenAI SDK, MetaGPT, CrewAI | 2-3 days | High | Per-agent `output_schema` in YAML, Pydantic validation, retry on failure. Already using Pydantic. |
+| 7 | **Structured tracing export** | OpenAI SDK, LangSmith, Google ADK | 3-5 days | High | OTel hooks exist. Add spans for each graph node, tool call, LLM invocation. Export to Langfuse/Jaeger. |
+| 8 | **Webhook triggers** | n8n, Dify, Julep | 2-3 days | Medium-High | New `/webhooks` route mapping events to graph executions. FastAPI already there. |
+| 9 | **Agent health endpoint** | All enterprise | 1-2 days | Medium | `/health/agents` returning per-agent status, error rates, latency. |
+| 10 | **Expose agents as MCP servers** | Dify, Haystack | 3-5 days | High | Make MAOS agents callable from Claude Desktop, VS Code, etc. |
+
+### Medium-Term Gaps (1-2 Weeks Each)
+
+| # | Feature | Who Has It | Effort | Impact | Notes |
+|---|---------|-----------|--------|--------|-------|
+| 11 | **Memory system** (episodic + semantic + entity) | CrewAI (4-tier), Letta, Google Memory Bank, Azure | 5-7 days | Critical | Beyond checkpointing: conversation summaries, RAG over history, entity extraction. Vector DB backend. |
+| 12 | **Prompt management / templating** | Dify, Langfuse, LangSmith | 3-4 days | Medium-High | Prompt registry with versioning, Jinja2 interpolation, A/B testing. Store separately from agent config. |
+| 13 | **Agent-level RAG** | CrewAI, Dify, Agno, Julep | 5-7 days | High | `knowledge` section in agent YAML pointing to document collections. Vector store + auto chunking/embedding. |
+| 14 | **Eval/benchmarking framework** | AgentCore (13 evaluators), Promptfoo, LangSmith | 5-7 days | Medium-High | `maos eval -c eval.yaml` with test cases, scoring (exact match, LLM-as-judge, custom). |
+| 15 | **Batch / parallel execution** | Google ADK, Julep, LangGraph | 3-5 days | Medium | Fan-out multiple inputs to parallel graph executions, collect results. |
+| 16 | **Plugin/extension system** | Dify (marketplace), AG2 | 5-7 days | Medium | Protocol class interface for custom tools, LLM providers, memory backends. Load from entry points. |
+| 17 | **Grafana dashboard template** | Various | 3-5 days | Medium | Pre-built dashboard: agent health, token usage, error rates, latency percentiles. |
+
+### Long-Term Gaps (Weeks to Months)
 
 | # | Feature | Who Has It | Effort | Impact |
 |---|---------|-----------|--------|--------|
-| 1 | **Output guardrails** (schema validation for agent outputs) | OpenAI SDK, Azure | Small | High — data integrity |
-| 2 | **Token/cost tracking dashboard** (aggregate by agent/conversation) | CrewAI, Google, Azure | Small | High — financial control |
-| 3 | **Agent health monitoring endpoint** (`/health/agents`) | All enterprise | Small | Medium — operations |
-| 4 | **Webhook triggers** (event-driven execution) | n8n, Dify, AWS | Medium | High — integration |
-| 5 | **Prompt templating system** (Jinja2 in YAML config) | Haystack, Dify | Small | Medium — reusability |
-| 6 | **LLM response caching** (exact match + TTL) | Redis, Haystack | Medium | High — 30-80% cost savings |
-| 7 | **Agent versioning** (version field in config, rollback) | Google ADK | Small | Medium — operations |
-| 8 | **Batch processing** (parallel message processing) | OpenAI, AWS | Medium | High — throughput |
-| 9 | **Content filtering / guardrails config** (input validation rules in YAML) | OpenAI SDK, Azure | Medium | High — safety |
-| 10 | **Expose agents as MCP servers** | Dify, Haystack | Medium | High — ecosystem |
-
-### Medium-Term Gaps
-
-| # | Feature | Who Has It | Effort | Impact |
-|---|---------|-----------|--------|--------|
-| 11 | **Memory abstraction** (conversation + archival + semantic) | Letta, Google, Azure | Large | Critical — quality |
-| 12 | **Agent evaluation framework** (config-driven test suites) | LangSmith, Google | Large | High — quality gates |
-| 13 | **Visual workflow builder** | Dify, Flowise, CrewAI AMP | Large | High — accessibility |
-| 14 | **Temporal integration** (durable execution backend) | Temporal | Large | High — enterprise |
-| 15 | **Multi-modal support** (vision, audio) | OpenAI, Google, Azure | Large | Medium — capability |
+| 18 | **Visual workflow builder** | Dify, n8n, Langflow, AutoGen Studio, Google ADK | 2-4 weeks | High |
+| 19 | **Multi-modal support** (image, audio, video) | Google ADK, Agno, Letta | 1-2 weeks | Medium |
+| 20 | **Agent versioning / rollback** | Letta (context repos), AgentCore | 1 week | Medium |
+| 21 | **NL-to-workflow conversion** | n8n, Dify | 1-2 weeks | Medium |
+| 22 | **Agent marketplace** | CrewAI Studio, Dify marketplace | 2-4 weeks | Low-Medium |
+| 23 | **Temporal integration** (durable execution) | Temporal | 1-2 weeks | High |
+| 24 | **Multi-language SDKs** | Google ADK (Python/TS/Go/Java), MS (Python/.NET) | Months | Medium |
 
 ---
 
@@ -302,11 +328,22 @@ MAOS occupies a **specific and defensible niche** that no single competitor full
 | # | Action | Type | Effort |
 |---|--------|------|--------|
 | 15 | Memory abstraction (pluggable backends) | Feature | Large |
-| 16 | Agent evaluation framework | Feature | Large |
+| 16 | Agent evaluation framework (`maos eval -c eval.yaml`) | Feature | Large |
 | 17 | Temporal integration for durable execution | Feature | Large |
 | 18 | Multi-tenant data isolation | Feature | Large |
 | 19 | Batch processing / parallel execution | Feature | Medium |
 | 20 | Agent marketplace / registry with templates | Feature | Large |
+
+### High-Impact Single Integration: Langfuse
+
+**Recommendation**: Integrate [Langfuse](https://langfuse.com) (open-source, MIT-licensed, 19k+ stars) as a single integration that covers multiple gaps simultaneously:
+- **Cost/token tracking** with per-model pricing
+- **Tracing** with visual trace UI
+- **Prompt management** with versioning and A/B testing
+- **Evaluation** with scoring and feedback
+- **Dashboards** for agent health and performance
+
+This one integration addresses priorities 1, 7, 12, 14, and 17 from the quick-wins table.
 
 ---
 
@@ -391,6 +428,35 @@ MAOS occupies a **specific and defensible niche** that no single competitor full
 - [Linux Foundation Launches A2A Project](https://www.linuxfoundation.org/press/linux-foundation-launches-the-agent2agent-protocol-project-to-enable-secure-intelligent-communication-between-ai-agents)
 - [State of MCP Report](https://zuplo.com/mcp-report)
 - [2026: Enterprise-Ready MCP Adoption](https://www.cdata.com/blog/2026-year-enterprise-ready-mcp-adoption)
+
+### Additional Competitor Research
+- [LangGraph vs CrewAI vs AutoGen: Top 10 Frameworks (o-mega)](https://o-mega.ai/articles/langgraph-vs-crewai-vs-autogen-top-10-agent-frameworks-2026)
+- [CrewAI vs LangGraph vs AutoGen (DataCamp)](https://www.datacamp.com/tutorial/crewai-vs-langgraph-vs-autogen)
+- [Top 6 AI Agent Frameworks 2026 (Turing)](https://www.turing.com/resources/ai-agent-frameworks)
+- [AG2: The Open-Source AgentOS](https://www.ag2.ai/)
+- [MS Agent Framework Convergence](https://cloudsummit.eu/blog/microsoft-agent-framework-production-ready-convergence-autogen-semantic-kernel)
+- [Google ADK Architecture Tour (The New Stack)](https://thenewstack.io/what-is-googles-agent-development-kit-an-architectural-tour/)
+- [AWS Strands + Bedrock AgentCore](https://aws.amazon.com/blogs/aws/introducing-amazon-bedrock-agentcore-securely-deploy-and-operate-ai-agents-at-any-scale/)
+- [Agno (Phidata) Framework](https://www.agno.com/)
+- [Julep: Serverless AI Workflows](https://julep.ai/)
+- [Langflow Guide to AI Agent Frameworks](https://www.langflow.org/blog/the-complete-guide-to-choosing-an-ai-agent-framework-in-2025)
+
+### Observability & Tooling
+- [Langfuse Token & Cost Tracking](https://langfuse.com/docs/observability/features/token-and-cost-tracking)
+- [LangSmith Observability](https://www.langchain.com/langsmith/observability)
+- [Top 5 AI Agent Observability Platforms 2026 (o-mega)](https://o-mega.ai/articles/top-5-ai-agent-observability-platforms-the-ultimate-2026-guide)
+- [Semantic Caching for AI Agents (Redis)](https://redis.io/blog/prompt-caching-vs-semantic-caching/)
+- [NVIDIA NeMo Guardrails](https://developer.nvidia.com/nemo-guardrails)
+- [LLM Guardrails Best Practices (Leanware)](https://www.leanware.co/insights/llm-guardrails)
+
+### Trends & Best Practices
+- [7 Agentic AI Trends 2026 (MachineLearningMastery)](https://machinelearningmastery.com/7-agentic-ai-trends-to-watch-in-2026/)
+- [MCP vs A2A Protocols Guide (OneReach)](https://onereach.ai/blog/guide-choosing-mcp-vs-a2a-protocols/)
+- [AI Agent Protocols 2026 (ruh.ai)](https://www.ruh.ai/blogs/ai-agent-protocols-2026-complete-guide)
+- [Memory for AI Agents: Context Engineering (The New Stack)](https://thenewstack.io/memory-for-ai-agents-a-new-paradigm-of-context-engineering/)
+- [Demystifying Evals for AI Agents (Anthropic)](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)
+- [Human-in-the-Loop Best Practices (Permit.io)](https://www.permit.io/blog/human-in-the-loop-for-ai-agents-best-practices-frameworks-use-cases-and-demo)
+- [2026 Guide to Agentic Workflow Architectures (StackAI)](https://www.stackai.com/blog/the-2026-guide-to-agentic-workflow-architectures)
 
 ### Security & Production Best Practices
 - [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llm-top-10/)

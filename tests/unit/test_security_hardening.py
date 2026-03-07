@@ -13,6 +13,7 @@ Tests cover:
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from maos.a2a.client import A2AClient
@@ -611,3 +612,45 @@ class TestAuthExcludePathsDefaults:
         assert "/health" in config.exclude_paths
         assert "/live" in config.exclude_paths
         assert "/ready" in config.exclude_paths
+
+
+# =============================================================================
+# Follow Redirects Warning Behavior
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestFollowRedirectsWarning:
+    """Tests that follow_redirects warning fires correctly for injected clients."""
+
+    def test_a2a_client_no_warning_when_redirects_disabled(self):
+        """No warning when injected client has follow_redirects=False."""
+        safe_client = httpx.AsyncClient(follow_redirects=False)
+        with patch("maos.a2a.client.logger") as mock_logger:
+            A2AClient(http_client=safe_client)
+            mock_logger.warning.assert_not_called()
+
+    def test_a2a_client_warns_when_redirects_enabled(self):
+        """Warning fires when injected client has follow_redirects=True."""
+        unsafe_client = httpx.AsyncClient(follow_redirects=True)
+        with patch("maos.a2a.client.logger") as mock_logger:
+            A2AClient(http_client=unsafe_client)
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert call_args[0][0] == "a2a_client_unsafe_http_client"
+
+    def test_discovery_no_warning_when_redirects_disabled(self):
+        """No warning when injected client has follow_redirects=False."""
+        safe_client = httpx.AsyncClient(follow_redirects=False)
+        with patch("maos.a2a.discovery.logger") as mock_logger:
+            A2ADiscovery(http_client=safe_client)
+            mock_logger.warning.assert_not_called()
+
+    def test_discovery_warns_when_redirects_enabled(self):
+        """Warning fires when injected client has follow_redirects=True."""
+        unsafe_client = httpx.AsyncClient(follow_redirects=True)
+        with patch("maos.a2a.discovery.logger") as mock_logger:
+            A2ADiscovery(http_client=unsafe_client)
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert call_args[0][0] == "a2a_discovery_unsafe_http_client"

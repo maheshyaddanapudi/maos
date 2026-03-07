@@ -35,7 +35,7 @@ class A2AClient:
         """
         if http_client is not None:
             # Warn if injected client might follow redirects (SSRF risk)
-            if getattr(http_client, "_follow_redirects", None) is not False:
+            if getattr(http_client, "follow_redirects", None) is not False:
                 logger.warning(
                     "a2a_client_unsafe_http_client",
                     message="Injected http_client may follow redirects; "

@@ -82,7 +82,7 @@ class A2ADiscovery:
                 for SSRF safety. If None, a safe client is created automatically.
         """
         if http_client is not None:
-            if getattr(http_client, "_follow_redirects", None) is not False:
+            if getattr(http_client, "follow_redirects", None) is not False:
                 logger.warning(
                     "a2a_discovery_unsafe_http_client",
                     message="Injected http_client may follow redirects; "

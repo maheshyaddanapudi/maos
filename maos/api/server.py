@@ -104,10 +104,15 @@ def create_app(
     )
 
     # Add CORS middleware
+    if "*" in serving.api.cors_origins:
+        logger.warning(
+            "cors_wildcard_origins",
+            message="CORS allows all origins — restrict in production",
+        )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=serving.api.cors_origins,
-        allow_credentials=True,
+        allow_credentials="*" not in serving.api.cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )

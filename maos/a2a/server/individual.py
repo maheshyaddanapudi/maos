@@ -19,7 +19,7 @@ class A2AIndividualServer:
         handler_fn: Callable[[dict], Any],
         host: str = "0.0.0.0",
         port: int = 9010,
-        skills: list[dict[str, str]] = None,
+        skills: list[dict[str, str]] | None = None,
     ):
         """
         Initialize the individual agent server.
@@ -46,12 +46,12 @@ class A2AIndividualServer:
         """Set up API routes."""
 
         @self._app.get("/.well-known/agent.json")
-        async def get_agent_card():
+        async def get_agent_card() -> dict[str, Any]:
             """Return agent card."""
             return self._get_card()
 
         @self._app.post("/")
-        async def handle_request(request: Request):
+        async def handle_request(request: Request) -> dict:
             """Handle A2A request."""
             body = await request.json()
             return await self._handle_request(body)

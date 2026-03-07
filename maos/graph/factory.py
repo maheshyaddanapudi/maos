@@ -280,7 +280,7 @@ class GraphFactory:
         required = schema.required if hasattr(schema, "required") else []
 
         for prop_name, prop_schema in properties.items():
-            prop_type = str  # Default to string
+            prop_type: type = str  # Default to string
             if isinstance(prop_schema, dict):
                 json_type = prop_schema.get("type", "string")
                 if json_type == "integer":

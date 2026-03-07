@@ -158,7 +158,7 @@ async def generate_title(
 
     except Exception as e:
         logger.error("title_generation_failed", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Title generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Title generation failed")
 
 
 @router.post("/title/async")

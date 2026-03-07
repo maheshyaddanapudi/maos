@@ -125,7 +125,7 @@ async def list_conversations(
                 )
         except Exception as e:
             logger.error("list_conversations_error", error=str(e))
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     # Fallback: Try to get threads from graph checkpointer directly
     elif graph:
@@ -241,7 +241,7 @@ async def get_conversation(
         raise
     except Exception as e:
         logger.error("get_conversation_error", thread_id=thread_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/{thread_id}/messages", response_model=MessageListResponse)
@@ -304,7 +304,7 @@ async def delete_conversation(
         raise
     except Exception as e:
         logger.error("delete_conversation_error", thread_id=thread_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/{thread_id}/status")
@@ -347,4 +347,4 @@ async def get_conversation_status(
 
     except Exception as e:
         logger.error("get_status_error", thread_id=thread_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

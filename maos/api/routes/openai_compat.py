@@ -238,7 +238,7 @@ async def create_chat_completion(
             error=str(e),
             thread_id=thread_id,
         )
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/models")

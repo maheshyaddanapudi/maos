@@ -61,13 +61,11 @@ class AgentFactory:
             raise ValueError(f"Expected native_worker, got {config.kind}")
 
         # Resolve tools from skillset
-        tool_ids = []
+        tool_ids: list[str] = []
         if config.skillset:
-            tool_ids = self._skillset_registry.get(config.skillset)
-            if tool_ids:
-                tool_ids = tool_ids.get_all_tool_ids(self._skill_registry)
-            else:
-                tool_ids = []
+            skillset = self._skillset_registry.get(config.skillset)
+            if skillset:
+                tool_ids = skillset.get_all_tool_ids(self._skill_registry)
 
         # Add direct tool references
         if config.tools:

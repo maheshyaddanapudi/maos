@@ -14,6 +14,7 @@ The resolver is configurable to prioritize different sources based
 on the expected UI client.
 """
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,6 +23,9 @@ import structlog
 from fastapi import Request
 
 logger = structlog.get_logger()
+
+# Validation regex for thread IDs: alphanumeric, hyphens, underscores, max 128 chars
+_VALID_THREAD_ID = re.compile(r"^[a-zA-Z0-9\-_.]{1,128}$")
 
 
 @dataclass
@@ -113,8 +117,11 @@ class ThreadIdResolver:
         """
         # 1. Check explicit ID first
         if explicit_id:
-            logger.debug("thread_id_from_explicit", thread_id=explicit_id)
-            return explicit_id
+            if _VALID_THREAD_ID.match(explicit_id):
+                logger.debug("thread_id_from_explicit", thread_id=explicit_id)
+                return explicit_id
+            logger.warning("thread_id_invalid_explicit", raw_id=explicit_id[:32])
+            return f"{self.config.prefix}{uuid.uuid4()}"
 
         # Extract headers and query from request if provided
         if request:
@@ -128,7 +135,7 @@ class ThreadIdResolver:
         # 2. Check body fields
         for field_name in self.config.body_fields:
             value = body.get(field_name)
-            if value:
+            if value and _VALID_THREAD_ID.match(str(value)):
                 logger.debug("thread_id_from_body", field=field_name, thread_id=value)
                 return str(value)
 
@@ -136,14 +143,14 @@ class ThreadIdResolver:
         headers_lower = {k.lower(): v for k, v in headers.items()}
         for header_name in self.config.header_fields:
             value = headers_lower.get(header_name.lower())
-            if value:
+            if value and _VALID_THREAD_ID.match(value):
                 logger.debug("thread_id_from_header", header=header_name, thread_id=value)
                 return str(value)
 
         # 4. Check query parameters
         for param_name in self.config.query_fields:
             value = query_params.get(param_name)
-            if value:
+            if value and _VALID_THREAD_ID.match(value):
                 logger.debug("thread_id_from_query", param=param_name, thread_id=value)
                 return str(value)
 

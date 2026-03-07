@@ -129,7 +129,7 @@ async def _start_external_agent(
         return None
 
 
-async def initialize_system(config_path: str, checkpointer=None):
+async def initialize_system(config_path: str, checkpointer=None) -> tuple:
     """
     Initialize all MAOS components from configuration.
 
@@ -327,7 +327,7 @@ async def initialize_system(config_path: str, checkpointer=None):
     return compiled_graph, context
 
 
-async def shutdown_system(context: dict):
+async def shutdown_system(context: dict) -> None:
     """
     Gracefully shutdown all MAOS components.
 
@@ -352,7 +352,7 @@ async def shutdown_system(context: dict):
     logger.info("maos_shutdown_complete")
 
 
-async def run_server(config_path: str, host: str, port: int):
+async def run_server(config_path: str, host: str, port: int) -> None:
     """
     Run the MAOS API server.
 
@@ -397,7 +397,7 @@ async def run_server(config_path: str, host: str, port: int):
     await server.serve()
 
 
-async def run_interactive(config_path: str):
+async def run_interactive(config_path: str) -> None:
     """
     Run MAOS in interactive CLI mode.
 
@@ -461,7 +461,7 @@ async def run_interactive(config_path: str):
         print("\nGoodbye!")
 
 
-async def validate_config(config_path: str):
+async def validate_config(config_path: str) -> bool:
     """
     Validate a configuration file.
 
@@ -474,20 +474,22 @@ async def validate_config(config_path: str):
 
     try:
         config = loader.load(config_path)
-        print("✓ Configuration is valid")
-        print(f"  - LLMs: {len(config.llms)}")
-        print(f"  - MCP Servers: {len(config.mcp_servers)}")
-        print(f"  - Tools: {len(config.tools)}")
-        print(f"  - Skills: {len(config.skills)}")
-        print(f"  - Skillsets: {len(config.skillsets)}")
-        print(f"  - Agents: {len(config.agents)}")
+        logger.info(
+            "config_valid",
+            llms=len(config.llms),
+            mcp_servers=len(config.mcp_servers),
+            tools=len(config.tools),
+            skills=len(config.skills),
+            skillsets=len(config.skillsets),
+            agents=len(config.agents),
+        )
         return True
     except Exception as e:
-        print(f"✗ Configuration is invalid: {str(e)}")
+        logger.error("config_invalid", error=str(e))
         return False
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         description="MAOS - Multi-Agent Orchestration System",
@@ -534,7 +536,7 @@ Examples:
 
     # Validate config path exists
     if hasattr(args, "config") and not Path(args.config).exists():
-        print(f"Error: Configuration file not found: {args.config}")
+        logger.error("config_file_not_found", path=args.config)
         sys.exit(1)
 
     # Run the appropriate command

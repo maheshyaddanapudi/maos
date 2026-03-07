@@ -8,30 +8,10 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import structlog
-from pydantic import BaseModel, Field
+
+from maos.config.models import ObservabilityConfig  # noqa: F401
 
 logger = structlog.get_logger()
-
-
-class ObservabilityConfig(BaseModel):
-    """Observability configuration."""
-
-    tracing_enabled: bool = Field(
-        default=False,
-        description="Enable distributed tracing",
-    )
-    metrics_enabled: bool = Field(
-        default=False,
-        description="Enable metrics collection",
-    )
-    log_prompts: bool = Field(
-        default=False,
-        description="Log LLM prompts (may contain sensitive data)",
-    )
-    log_tool_calls: bool = Field(
-        default=True,
-        description="Log tool call invocations and results",
-    )
 
 
 # Optional OpenTelemetry integration

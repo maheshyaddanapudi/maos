@@ -1,10 +1,10 @@
 """API request and response models."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MessageRole(StrEnum):
@@ -36,13 +36,14 @@ class ChatRequest(BaseModel):
     stream: bool = False
     max_iterations: int | None = None
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "messages": [{"role": "user", "content": "Hello, how can you help me?"}],
                 "stream": True,
             }
         }
+    )
 
 
 class ResumeRequest(BaseModel):
@@ -167,7 +168,7 @@ class HealthResponse(BaseModel):
     status: HealthStatus
     version: str = "0.1.0"
     components: list[ComponentHealth] = Field(default_factory=list)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ErrorResponse(BaseModel):
@@ -198,7 +199,7 @@ class OpenAIChatRequest(BaseModel):
 
     model: str = "maos"
     messages: list[OpenAIMessage] = Field(
-        ..., max_length=100
+        ..., min_length=1, max_length=100
     )
     temperature: float | None = None
     max_tokens: int | None = None

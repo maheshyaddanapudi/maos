@@ -64,9 +64,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.config = config
         self._buckets: dict[str, TokenBucket] = {}
+        self._buckets_lock = asyncio.Lock()
 
-    def _get_bucket(self, client_id: str) -> TokenBucket:
-        """Get or create a token bucket for the client, with eviction."""
+    def _get_or_create_bucket(self, client_id: str) -> TokenBucket:
+        """Get or create a token bucket for the client, with eviction.
+
+        Must be called while holding ``_buckets_lock``.
+        """
         if client_id in self._buckets:
             return self._buckets[client_id]
 
@@ -84,7 +88,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # If still at capacity after eviction, remove oldest entry
             if len(self._buckets) >= _MAX_BUCKETS:
                 oldest_key = min(
-                    self._buckets, key=lambda k: self._buckets[k].last_refill
+                    self._buckets,
+                    key=lambda k: self._buckets[k].last_refill,
                 )
                 del self._buckets[oldest_key]
 
@@ -105,7 +110,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         client_id = (
             request.client.host if request.client else "unknown"
         )
-        bucket = self._get_bucket(client_id)
+        async with self._buckets_lock:
+            bucket = self._get_or_create_bucket(client_id)
 
         if not await bucket.consume():
             logger.warning(

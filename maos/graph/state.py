@@ -87,7 +87,7 @@ class Message(BaseModel):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
-        d = {"role": self.role, "content": self.content}
+        d: dict[str, Any] = {"role": self.role, "content": self.content}
         if self.name:
             d["name"] = self.name
         if self.tool_calls:

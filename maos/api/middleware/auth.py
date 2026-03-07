@@ -46,19 +46,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     def _is_valid_key(self, token: str) -> bool:
         """Check if token matches any valid key using constant-time comparison."""
-        return any(
-            hmac.compare_digest(token, key) for key in self._valid_keys
-        )
+        result = False
+        for key in self._valid_keys:
+            if hmac.compare_digest(token, key):
+                result = True
+        return result
 
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         """Check authentication for incoming requests."""
-        # Skip auth for excluded paths
-        if any(
-            request.url.path.startswith(p)
-            for p in self.config.exclude_paths
-        ):
+        # Skip auth for excluded paths (exact match to prevent prefix bypass)
+        if request.url.path in self.config.exclude_paths:
             return await call_next(request)
 
         if not self.config.enabled:

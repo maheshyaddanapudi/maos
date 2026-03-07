@@ -325,13 +325,15 @@ class TestEdgeCases:
 
         assert result == "valid-id"
 
-    def test_whitespace_preserved(self):
-        """Test whitespace in IDs is preserved."""
+    def test_whitespace_rejected(self):
+        """Test whitespace in IDs is rejected and a new UUID is generated."""
         resolver = ThreadIdResolver()
 
         result = resolver.resolve(body={"thread_id": "  spaced-id  "})
 
-        assert result == "  spaced-id  "
+        # Whitespace IDs are invalid, should generate a new UUID
+        assert result != "  spaced-id  "
+        assert len(result) == 36  # UUID format
 
     def test_numeric_values_converted(self):
         """Test numeric values are converted to strings."""

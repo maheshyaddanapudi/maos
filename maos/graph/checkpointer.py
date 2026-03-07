@@ -81,7 +81,7 @@ class CheckpointerFactory:
             )
 
         # Get connection URI
-        uri = config.postgres_uri
+        uri = config.postgres_uri.get_secret_value() if config.postgres_uri else None
         if not uri and config.postgres_uri_env:
             uri = os.environ.get(config.postgres_uri_env)
 
@@ -137,7 +137,7 @@ async def create_async_checkpointer(config: CheckpointerConfig) -> BaseCheckpoin
                 "Install with: pip install langgraph-checkpoint-postgres"
             )
 
-        uri = config.postgres_uri
+        uri = config.postgres_uri.get_secret_value() if config.postgres_uri else None
         if not uri and config.postgres_uri_env:
             uri = os.environ.get(config.postgres_uri_env)
 
@@ -206,7 +206,7 @@ class ConversationStore:
             for thread_id in thread_ids[offset : offset + limit]:
                 # Get latest checkpoint
                 config = {"configurable": {"thread_id": thread_id}}
-                checkpoint = self._checkpointer.get(config)
+                checkpoint = await asyncio.to_thread(self._checkpointer.get, config)
 
                 if checkpoint:
                     threads.append(
@@ -313,7 +313,7 @@ class ConversationStore:
             )
             return []
 
-        uri = self._config.postgres_uri
+        uri = self._config.postgres_uri.get_secret_value() if self._config.postgres_uri else None
         if not uri and self._config.postgres_uri_env:
             uri = os.environ.get(self._config.postgres_uri_env)
 
@@ -340,7 +340,7 @@ class ConversationStore:
                 if ttl_days is not None:
                     query += (
                         " AND created_at >= NOW()"
-                        " - INTERVAL '%s days'"
+                        " - INTERVAL '1 day' * %s"
                     )
                     params.append(ttl_days)
 
@@ -397,7 +397,7 @@ class ConversationStore:
         if hasattr(self._checkpointer, "aget"):
             checkpoint = await self._checkpointer.aget(config)
         else:
-            checkpoint = self._checkpointer.get(config)
+            checkpoint = await asyncio.to_thread(self._checkpointer.get, config)
 
         if not checkpoint:
             return []
@@ -423,7 +423,7 @@ class ConversationStore:
         if hasattr(self._checkpointer, "aget"):
             checkpoint = await self._checkpointer.aget(config)
         else:
-            checkpoint = self._checkpointer.get(config)
+            checkpoint = await asyncio.to_thread(self._checkpointer.get, config)
 
         if not checkpoint:
             return None
@@ -492,7 +492,7 @@ class ConversationStore:
             logger.warning("psycopg2_not_installed")
             return False
 
-        uri = self._config.postgres_uri
+        uri = self._config.postgres_uri.get_secret_value() if self._config.postgres_uri else None
         if not uri and self._config.postgres_uri_env:
             uri = os.environ.get(self._config.postgres_uri_env)
 

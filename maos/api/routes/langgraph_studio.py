@@ -41,9 +41,17 @@ router = APIRouter(tags=["langgraph-studio"])
 
 
 # In-memory stores (in production, use persistent storage)
+_MAX_STORE_SIZE = 10_000
 _assistants: dict[str, Assistant] = {}
 _threads: dict[str, Thread] = {}
 _runs: dict[str, Run] = {}
+
+
+def _enforce_store_limit(store: dict, max_size: int = _MAX_STORE_SIZE) -> None:
+    """Evict oldest entries if store exceeds max_size."""
+    while len(store) > max_size:
+        oldest_key = next(iter(store))
+        del store[oldest_key]
 
 
 def get_app_context() -> dict[str, Any]:
@@ -107,6 +115,7 @@ async def create_assistant(
     )
 
     _assistants[assistant_id] = assistant
+    _enforce_store_limit(_assistants)
     logger.info("assistant_created", assistant_id=assistant_id)
     return assistant
 
@@ -185,6 +194,7 @@ async def create_thread(
     )
 
     _threads[thread_id] = thread
+    _enforce_store_limit(_threads)
     logger.info("thread_created", thread_id=thread_id)
     return thread
 
@@ -258,7 +268,7 @@ async def get_thread_state(
 
     except Exception as e:
         logger.error("get_state_error", thread_id=thread_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/threads/{thread_id}/state")
@@ -282,7 +292,7 @@ async def update_thread_state(
 
     except Exception as e:
         logger.error("update_state_error", thread_id=thread_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # =============================================================================
@@ -321,6 +331,7 @@ async def create_run(
         metadata=request.metadata or {},
     )
     _runs[run_id] = run
+    _enforce_store_limit(_runs)
 
     # Ensure thread exists
     if thread_id not in _threads:
@@ -377,7 +388,7 @@ async def create_run(
         run.updated_at = _now_iso()
         _threads[thread_id].status = "error"
         logger.error("run_error", run_id=run_id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/threads/{thread_id}/runs/stream")
@@ -493,7 +504,7 @@ async def _stream_run(graph, agent_registry, thread_id: str, run_id: str, reques
     except Exception as e:
         run.status = RunStatus.ERROR
         logger.error("stream_run_error", run_id=run_id, error=str(e))
-        yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+        yield f"event: error\ndata: {json.dumps({'error': 'Internal server error'})}\n\n"
 
 
 def _format_studio_event(event: dict[str, Any]) -> str | None:

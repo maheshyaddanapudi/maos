@@ -441,7 +441,7 @@ class TestCheckpointerConfig:
 
         config = CheckpointerConfig(type="postgres", postgres_uri="postgresql://localhost/maos")
         assert config.type == "postgres"
-        assert config.postgres_uri == "postgresql://localhost/maos"
+        assert config.postgres_uri.get_secret_value() == "postgresql://localhost/maos"
 
     def test_checkpointer_config_in_graph_config(self):
         """Test checkpointer configuration in GraphConfig."""

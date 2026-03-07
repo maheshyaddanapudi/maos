@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
 class LLMProvider(StrEnum):
@@ -175,7 +175,7 @@ class CheckpointerConfig(BaseModel):
         default="maos_checkpoints.db", description="Path to SQLite database file"
     )
     # PostgreSQL settings
-    postgres_uri: str | None = Field(default=None, description="PostgreSQL connection URI")
+    postgres_uri: SecretStr | None = Field(default=None, description="PostgreSQL connection URI")
     postgres_uri_env: str | None = Field(
         default=None, description="Env var containing PostgreSQL URI"
     )
@@ -197,7 +197,10 @@ class APIConfig(BaseModel):
 
     host: str = "127.0.0.1"
     port: int = Field(default=7777, ge=1, le=65535)
-    cors_origins: list[str] = Field(default=["*"])
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://localhost:7777"],
+        description="CORS allowed origins. Override with ['*'] for development only.",
+    )
     openai_compatible: bool = True
 
 

@@ -32,19 +32,19 @@ class A2AHostServer:
         """Set up API routes."""
 
         @self._app.get("/a2a/index.json")
-        async def get_host_index():
+        async def get_host_index() -> dict[str, Any]:
             """Return host index listing all agents."""
             return self.get_index()
 
         @self._app.get("/a2a/{name}/.well-known/agent.json")
-        async def get_agent_card(name: str):
+        async def get_agent_card(name: str) -> dict[str, Any] | JSONResponse:
             """Return agent card for specific agent."""
             if name not in self._agents:
                 return JSONResponse(status_code=404, content={"error": f"Agent '{name}' not found"})
             return self._agents[name].get_card()
 
         @self._app.post("/a2a/{name}")
-        async def handle_agent_request(name: str, request: Request):
+        async def handle_agent_request(name: str, request: Request) -> dict | JSONResponse:
             """Handle A2A request for specific agent."""
             if name not in self._agents:
                 return JSONResponse(status_code=404, content={"error": f"Agent '{name}' not found"})
@@ -109,7 +109,7 @@ class A2AAgentHandler:
         self._name = name
         self._description = description
         self._handler_fn = handler_fn
-        self._skills = []
+        self._skills: list[dict[str, str]] = []
 
     def add_skill(self, skill_id: str, name: str, description: str = "") -> None:
         """Add a skill to the agent."""

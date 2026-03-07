@@ -180,7 +180,7 @@ async def chat(
         logger.error("chat_error", thread_id=thread_id, error=str(e))
         raise HTTPException(
             status_code=500,
-            detail=f"Chat execution error: {str(e)}",
+            detail="Internal server error",
         )
 
 
@@ -276,7 +276,7 @@ async def resume_chat(request: ResumeRequest, context: dict[str, Any] = Depends(
         raise
     except Exception as e:
         logger.error("chat_resume_error", thread_id=thread_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Resume error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/chat/stream")
@@ -326,7 +326,7 @@ async def get_thread_state(
         raise
     except Exception as e:
         logger.error("get_state_error", thread_id=thread_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Error getting thread state: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete("/chat/{thread_id}")
@@ -355,7 +355,7 @@ async def delete_thread(
 
     except Exception as e:
         logger.error("delete_thread_error", thread_id=thread_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Error deleting thread: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 def _extract_worker_results(result: dict[str, Any]) -> list[WorkerResultInfo]:

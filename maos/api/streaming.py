@@ -3,7 +3,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -39,7 +39,7 @@ def create_stream_event(event_type: StreamEventType, data: dict[str, Any]) -> St
     Returns:
         StreamEvent instance.
     """
-    return StreamEvent(event=event_type, data=data, timestamp=datetime.utcnow())
+    return StreamEvent(event=event_type, data=data, timestamp=datetime.now(UTC))
 
 
 async def stream_graph_events(
@@ -138,7 +138,8 @@ async def stream_graph_events(
     except Exception as e:
         logger.error("stream_error", error=str(e), thread_id=thread_id)
         yield format_sse_event(
-            StreamEventType.ERROR.value, {"error": str(e), "thread_id": thread_id}
+            StreamEventType.ERROR.value,
+            {"error": "Internal server error", "thread_id": thread_id},
         )
 
 
@@ -171,8 +172,8 @@ class OpenAIStreamFormatter:
 
     def __init__(self, model: str = "maos"):
         self.model = model
-        self._id = f"chatcmpl-{datetime.utcnow().timestamp()}"
-        self._created = int(datetime.utcnow().timestamp())
+        self._id = f"chatcmpl-{datetime.now(UTC).timestamp()}"
+        self._created = int(datetime.now(UTC).timestamp())
 
     def format_chunk(
         self, content: str | None = None, role: str | None = None, finish_reason: str | None = None
@@ -241,10 +242,9 @@ async def stream_openai_response(
 
     except Exception as e:
         logger.error("openai_stream_error", error=str(e))
-        # Send error as content
         if first_chunk:
             yield formatter.format_chunk(role="assistant")
-        yield formatter.format_chunk(content=f"Error: {str(e)}")
+        yield formatter.format_chunk(content="An error occurred while processing your request.")
         yield formatter.format_chunk(finish_reason="stop")
         yield formatter.format_done()
 
@@ -345,7 +345,7 @@ async def stream_openai_response_with_interrupt(
         logger.error("openai_stream_error", error=str(e), thread_id=thread_id)
         if first_chunk:
             yield formatter.format_chunk(role="assistant")
-        yield formatter.format_chunk(content=f"Error: {str(e)}")
+        yield formatter.format_chunk(content="An error occurred while processing your request.")
         yield formatter.format_chunk(finish_reason="stop")
         yield formatter.format_done()
 

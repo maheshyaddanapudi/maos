@@ -18,7 +18,7 @@ from maos.api.models import (
     WorkerResultInfo,
 )
 from maos.api.streaming import stream_graph_events
-from maos.api.thread_id import resolve_thread_id
+from maos.api.thread_id import _VALID_THREAD_ID, resolve_thread_id
 from maos.graph.state import WorkerResult, create_initial_state
 
 logger = structlog.get_logger()
@@ -108,9 +108,7 @@ async def chat(
         app_config = context.get("config")
         timeout_secs = 300.0
         if app_config and hasattr(app_config, "graph"):
-            timeout_secs = float(
-                app_config.graph.timeouts.total_execution_seconds
-            )
+            timeout_secs = float(app_config.graph.timeouts.total_execution_seconds)
 
         result = await asyncio.wait_for(
             graph.ainvoke(initial_state, config=config),
@@ -213,14 +211,10 @@ async def resume_chat(request: ResumeRequest, context: dict[str, Any] = Depends(
         app_config = context.get("config")
         timeout_secs = 300.0
         if app_config and hasattr(app_config, "graph"):
-            timeout_secs = float(
-                app_config.graph.timeouts.total_execution_seconds
-            )
+            timeout_secs = float(app_config.graph.timeouts.total_execution_seconds)
 
         result = await asyncio.wait_for(
-            graph.ainvoke(
-                Command(resume=request.input), config=config
-            ),
+            graph.ainvoke(Command(resume=request.input), config=config),
             timeout=timeout_secs,
         )
 
@@ -302,6 +296,9 @@ async def get_thread_state(
 
     Useful for debugging or resuming conversations.
     """
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
+
     graph = context.get("graph")
 
     if not graph:
@@ -319,7 +316,6 @@ async def get_thread_state(
             "thread_id": thread_id,
             "values": state.values,
             "next": state.next,
-            "config": state.config,
         }
 
     except HTTPException:
@@ -338,6 +334,9 @@ async def delete_thread(
 
     Note: This only works if a checkpointer with delete capability is configured.
     """
+    if not _VALID_THREAD_ID.match(thread_id):
+        raise HTTPException(status_code=400, detail="Invalid thread ID format")
+
     checkpointer = context.get("checkpointer")
 
     if not checkpointer:

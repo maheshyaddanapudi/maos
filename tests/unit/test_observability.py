@@ -161,9 +161,7 @@ class TestCostTracker:
     async def test_concurrent_records_safe(self):
         """Test that concurrent record calls are thread-safe."""
         tracker = CostTracker()
-        await asyncio.gather(
-            *[tracker.record("gpt-4o", 10, 5) for _ in range(20)]
-        )
+        await asyncio.gather(*[tracker.record("gpt-4o", 10, 5) for _ in range(20)])
         summary = await tracker.get_usage_summary()
         assert summary["by_model"]["gpt-4o"]["input"] == 200
         assert summary["by_model"]["gpt-4o"]["output"] == 100

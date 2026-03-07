@@ -9,7 +9,7 @@ from typing import Any
 
 import structlog
 
-from maos.config.models import ObservabilityConfig  # noqa: F401
+from maos.config.models import ObservabilityConfig  # noqa: F401 — re-exported
 
 logger = structlog.get_logger()
 
@@ -117,9 +117,7 @@ class CostTracker:
     }
 
     def __init__(self) -> None:
-        self._usage: dict[str, dict[str, int]] = defaultdict(
-            lambda: {"input": 0, "output": 0}
-        )
+        self._usage: dict[str, dict[str, int]] = defaultdict(lambda: {"input": 0, "output": 0})
         self._lock = asyncio.Lock()
 
     async def record(
@@ -148,9 +146,7 @@ class CostTracker:
         async with self._lock:
             total = 0.0
             for model, usage in self._usage.items():
-                costs = self.MODEL_COSTS.get(
-                    model, {"input": 5.0, "output": 15.0}
-                )
+                costs = self.MODEL_COSTS.get(model, {"input": 5.0, "output": 15.0})
                 total += (usage["input"] / 1_000_000) * costs["input"]
                 total += (usage["output"] / 1_000_000) * costs["output"]
             return round(total, 6)
@@ -164,9 +160,7 @@ class CostTracker:
         async with self._lock:
             total = 0.0
             for model, usage in self._usage.items():
-                costs = self.MODEL_COSTS.get(
-                    model, {"input": 5.0, "output": 15.0}
-                )
+                costs = self.MODEL_COSTS.get(model, {"input": 5.0, "output": 15.0})
                 total += (usage["input"] / 1_000_000) * costs["input"]
                 total += (usage["output"] / 1_000_000) * costs["output"]
             return {

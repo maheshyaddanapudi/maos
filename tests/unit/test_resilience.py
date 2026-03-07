@@ -71,9 +71,7 @@ class TestRetryWithBackoff:
         async def capture_sleep(delay):
             sleep_delays.append(delay)
 
-        with patch(
-            "maos.resilience.asyncio.sleep", side_effect=capture_sleep
-        ):
+        with patch("maos.resilience.asyncio.sleep", side_effect=capture_sleep):
             await retry_with_backoff(
                 fn,
                 max_retries=3,
@@ -101,9 +99,7 @@ class TestRetryWithBackoff:
         async def capture_sleep(delay):
             sleep_delays.append(delay)
 
-        with patch(
-            "maos.resilience.asyncio.sleep", side_effect=capture_sleep
-        ):
+        with patch("maos.resilience.asyncio.sleep", side_effect=capture_sleep):
             with pytest.raises(ValueError):
                 await retry_with_backoff(
                     failing_fn,
@@ -122,9 +118,7 @@ class TestRetryWithBackoff:
         """Test that positional and keyword arguments are forwarded."""
         fn = AsyncMock(return_value="done")
 
-        result = await retry_with_backoff(
-            fn, "a", "b", max_retries=0, key="val"
-        )
+        result = await retry_with_backoff(fn, "a", "b", max_retries=0, key="val")
 
         assert result == "done"
         fn.assert_called_once_with("a", "b", key="val")
@@ -170,9 +164,7 @@ class TestCircuitBreaker:
 
     async def test_open_state_rejects_calls(self):
         """Test that open state rejects with MAOSCircuitBreakerError."""
-        cb = CircuitBreaker(
-            "test", failure_threshold=2, recovery_timeout=60.0
-        )
+        cb = CircuitBreaker("test", failure_threshold=2, recovery_timeout=60.0)
         fn = AsyncMock(side_effect=RuntimeError("fail"))
 
         # Trip the breaker
@@ -190,13 +182,9 @@ class TestCircuitBreaker:
         """Test transition to half_open after recovery_timeout."""
         start_time = 1000.0
         # Calls: _record_failure x2 (set _last_failure_time), then state check
-        mock_time = MagicMock(
-            side_effect=[start_time, start_time, start_time + 0.2]
-        )
+        mock_time = MagicMock(side_effect=[start_time, start_time, start_time + 0.2])
         with patch("maos.resilience.time.monotonic", mock_time):
-            cb = CircuitBreaker(
-                "test", failure_threshold=2, recovery_timeout=0.1
-            )
+            cb = CircuitBreaker("test", failure_threshold=2, recovery_timeout=0.1)
             fn = AsyncMock(side_effect=RuntimeError("fail"))
 
             # Trip the breaker
@@ -214,19 +202,17 @@ class TestCircuitBreaker:
         # then _record_success state check
         mock_time = MagicMock(
             side_effect=[
-                start_time,       # _record_failure call 1
-                start_time,       # _record_failure call 2
-                start_time + 0.2, # state check -> half_open
-                start_time + 0.2, # state check in call()
-                start_time + 0.2, # any further checks
+                start_time,  # _record_failure call 1
+                start_time,  # _record_failure call 2
+                start_time + 0.2,  # state check -> half_open
+                start_time + 0.2,  # state check in call()
+                start_time + 0.2,  # any further checks
                 start_time + 0.2,
                 start_time + 0.2,
             ]
         )
         with patch("maos.resilience.time.monotonic", mock_time):
-            cb = CircuitBreaker(
-                "test", failure_threshold=2, recovery_timeout=0.1
-            )
+            cb = CircuitBreaker("test", failure_threshold=2, recovery_timeout=0.1)
             fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
 
             # Trip the breaker
@@ -248,19 +234,17 @@ class TestCircuitBreaker:
         start_time = 1000.0
         mock_time = MagicMock(
             side_effect=[
-                start_time,       # _record_failure call 1
-                start_time,       # _record_failure call 2
-                start_time + 0.2, # state check -> half_open
-                start_time + 0.2, # state check in call()
-                start_time + 0.2, # _record_failure call 3
+                start_time,  # _record_failure call 1
+                start_time,  # _record_failure call 2
+                start_time + 0.2,  # state check -> half_open
+                start_time + 0.2,  # state check in call()
+                start_time + 0.2,  # _record_failure call 3
                 start_time + 0.2,
                 start_time + 0.2,
             ]
         )
         with patch("maos.resilience.time.monotonic", mock_time):
-            cb = CircuitBreaker(
-                "test", failure_threshold=2, recovery_timeout=0.1
-            )
+            cb = CircuitBreaker("test", failure_threshold=2, recovery_timeout=0.1)
             fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
 
             # Trip the breaker
@@ -282,16 +266,14 @@ class TestCircuitBreaker:
         start_time = 1000.0
         mock_time = MagicMock(
             side_effect=[
-                start_time,       # _record_failure call 1
-                start_time,       # _record_failure call 2
-                start_time,       # state check -> open (not enough time)
-                start_time + 0.2, # state check -> half_open
+                start_time,  # _record_failure call 1
+                start_time,  # _record_failure call 2
+                start_time,  # state check -> open (not enough time)
+                start_time + 0.2,  # state check -> half_open
             ]
         )
         with patch("maos.resilience.time.monotonic", mock_time):
-            cb = CircuitBreaker(
-                "test", failure_threshold=2, recovery_timeout=0.1
-            )
+            cb = CircuitBreaker("test", failure_threshold=2, recovery_timeout=0.1)
 
             assert cb.state == "closed"
 
@@ -309,9 +291,7 @@ class TestCircuitBreaker:
         cb = CircuitBreaker("test", failure_threshold=100)
         fn = AsyncMock(return_value="ok")
 
-        results = await asyncio.gather(
-            *[cb.call(fn) for _ in range(20)]
-        )
+        results = await asyncio.gather(*[cb.call(fn) for _ in range(20)])
 
         assert all(r == "ok" for r in results)
         assert cb.state == "closed"
@@ -337,11 +317,11 @@ class TestCircuitBreaker:
         start_time = 1000.0
         mock_time = MagicMock(
             side_effect=[
-                start_time,       # _record_failure call 1
-                start_time,       # _record_failure call 2
-                start_time + 0.2, # state check -> half_open
-                start_time + 0.2, # state check in call()
-                start_time + 0.2, # _record_failure call 3
+                start_time,  # _record_failure call 1
+                start_time,  # _record_failure call 2
+                start_time + 0.2,  # state check -> half_open
+                start_time + 0.2,  # state check in call()
+                start_time + 0.2,  # _record_failure call 3
                 start_time + 0.2,
                 start_time + 0.2,
             ]

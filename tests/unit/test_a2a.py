@@ -501,9 +501,7 @@ class TestA2AClient:
             )
             async with httpx.AsyncClient() as http_client:
                 discovery = A2ADiscovery(http_client=http_client)
-                card = await discovery._fetch_agent_card(
-                    "http://agent-host/.well-known/agent.json"
-                )
+                card = await discovery._fetch_agent_card("http://agent-host/.well-known/agent.json")
 
         assert card is not None
         assert card.name == "test-agent"

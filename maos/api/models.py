@@ -29,9 +29,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     """Request for /chat endpoint."""
 
-    messages: list[Message] = Field(
-        ..., min_length=1, max_length=100
-    )
+    messages: list[Message] = Field(..., min_length=1, max_length=100)
     thread_id: str | None = None
     stream: bool = False
     max_iterations: int | None = None
@@ -81,9 +79,7 @@ class ChatResponse(BaseModel):
     thread_id: str
     messages: list[Message]
     final_response: str
-    worker_results: list[WorkerResultInfo] = Field(
-        default_factory=list, max_length=50
-    )
+    worker_results: list[WorkerResultInfo] = Field(default_factory=list, max_length=50)
     iterations: int = 0
     done: bool = True
 
@@ -127,12 +123,8 @@ class AgentInfo(BaseModel):
     description: str | None = None
     llm: str | None = None
     framework: str | None = None
-    tools: list[str] = Field(
-        default_factory=list, max_length=50
-    )
-    skills: list[str] = Field(
-        default_factory=list, max_length=50
-    )
+    tools: list[str] = Field(default_factory=list, max_length=50)
+    skills: list[str] = Field(default_factory=list, max_length=50)
 
 
 class AgentListResponse(BaseModel):
@@ -140,9 +132,7 @@ class AgentListResponse(BaseModel):
 
     agents: list[AgentInfo] = Field(default_factory=list)
     supervisor: AgentInfo | None = None
-    external_agents: list[AgentInfo] = Field(
-        default_factory=list, max_length=50
-    )
+    external_agents: list[AgentInfo] = Field(default_factory=list, max_length=50)
 
 
 class HealthStatus(StrEnum):
@@ -198,9 +188,7 @@ class OpenAIChatRequest(BaseModel):
     """
 
     model: str = "maos"
-    messages: list[OpenAIMessage] = Field(
-        ..., min_length=1, max_length=100
-    )
+    messages: list[OpenAIMessage] = Field(..., min_length=1, max_length=100)
     temperature: float | None = None
     max_tokens: int | None = None
     stream: bool = False

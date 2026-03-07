@@ -134,9 +134,7 @@ def create_app(
     api_keys: list[str] = []
     if security.api_key_env:
         raw = os.environ.get(security.api_key_env, "")
-        api_keys = [
-            k.strip() for k in raw.split(",") if k.strip()
-        ]
+        api_keys = [k.strip() for k in raw.split(",") if k.strip()]
     auth_cfg = AuthConfig(
         enabled=security.auth_enabled,
         api_keys=api_keys,
@@ -176,9 +174,7 @@ def create_app(
             status_code=500,
             content={
                 "error": "internal_server_error",
-                "message": (
-                    "An unexpected error occurred."
-                ),
+                "message": ("An unexpected error occurred."),
             },
         )
 

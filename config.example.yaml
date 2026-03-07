@@ -199,7 +199,9 @@ serving:
     host: "0.0.0.0"
     port: 7777
     cors_origins:
-      - "*"                     # Allow all origins (restrict in production)
+      - "http://localhost:3000"   # Frontend dev server
+      - "http://localhost:7777"   # MAOS API (same-origin)
+      # - "*"                     # Uncomment for development only
 
 # ============================================================================
 # Agent-to-Agent (A2A) Configuration

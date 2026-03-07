@@ -179,7 +179,11 @@ class ExternalAgentServer(BaseAgentExecutor):
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "result": {
-                        "task": {"id": f"task-{request_id}", "status": "FAILED", "error": str(e)}
+                        "task": {
+                            "id": f"task-{request_id}",
+                            "status": "FAILED",
+                            "error": "Internal processing error",
+                        }
                     },
                 }
 

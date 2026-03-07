@@ -5,10 +5,15 @@ import os
 from pathlib import Path
 from typing import Any
 
+import structlog
 import yaml
 from pydantic import ValidationError
 
 from maos.config.models import Config
+
+logger = structlog.get_logger()
+
+_SECURITY_PATHS = {"auth", "security", "api_keys", "cors"}
 
 
 class ConfigError(Exception):
@@ -182,6 +187,14 @@ class ConfigLoader:
                     current[final_key] = json.loads(value)
                 except json.JSONDecodeError:
                     current[final_key] = value
+
+                # Warn about security-related overrides
+                if any(part in _SECURITY_PATHS for part in path_parts):
+                    logger.warning(
+                        "security_config_env_override",
+                        env_var=key,
+                        message="Security-related configuration overridden via environment variable",
+                    )
 
         return result
 

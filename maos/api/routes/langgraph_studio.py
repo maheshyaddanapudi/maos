@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 
@@ -491,7 +491,13 @@ async def _stream_run(graph, agent_registry, thread_id: str, run_id: str, reques
             tasks = getattr(state, "tasks", [])
             if tasks and hasattr(tasks[0], "interrupts") and tasks[0].interrupts:
                 interrupt_value = tasks[0].interrupts[0].value
-                yield f"event: interrupt\ndata: {json.dumps(interrupt_value)}\n\n"
+                # Sanitize interrupt value to prevent leaking internal state
+                safe_value = (
+                    str(interrupt_value)
+                    if isinstance(interrupt_value, str)
+                    else {"message": str(interrupt_value)}
+                )
+                yield f"event: interrupt\ndata: {json.dumps(safe_value)}\n\n"
         else:
             run.status = RunStatus.SUCCESS
             _threads[thread_id].status = "idle"
@@ -549,8 +555,8 @@ async def get_run(
 @router.get("/threads/{thread_id}/runs", response_model=list[Run])
 async def list_runs(
     thread_id: str,
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     context: dict[str, Any] = Depends(get_app_context),
 ) -> list[Run]:
     """List runs for a thread."""

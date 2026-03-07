@@ -75,9 +75,9 @@ class A2ADiscovery:
         tasks = [self._discover_from_seed(seed, config) for seed in config.discovery.seeds]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        discovered = []
+        discovered: list[DiscoveredAgent] = []
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.warning("seed_discovery_failed", error=str(result))
             else:
                 discovered.extend(result)

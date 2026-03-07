@@ -25,6 +25,10 @@ class RateLimitConfig(BaseModel):
     enabled: bool = False
     requests_per_minute: int = Field(default=60, ge=1)
     burst_size: int = Field(default=10, ge=1)
+    trusted_proxy_headers: list[str] = Field(
+        default_factory=list,
+        description="Trusted headers for client IP (e.g., X-Forwarded-For, X-Real-IP)",
+    )
 
 
 class TokenBucket:
@@ -77,11 +81,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Evict stale entries if at capacity
         if len(self._buckets) >= _MAX_BUCKETS:
             now = time.monotonic()
-            stale = [
-                k
-                for k, v in self._buckets.items()
-                if now - v.last_refill > _EVICTION_AGE
-            ]
+            stale = [k for k, v in self._buckets.items() if now - v.last_refill > _EVICTION_AGE]
             for k in stale:
                 del self._buckets[k]
 
@@ -100,16 +100,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._buckets[client_id] = bucket
         return bucket
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Rate-limit incoming requests by client IP."""
         if not self.config.enabled:
             return await call_next(request)
 
-        client_id = (
-            request.client.host if request.client else "unknown"
-        )
+        client_id = request.client.host if request.client else "unknown"
+
+        # Check trusted proxy headers for real client IP
+        for header in self.config.trusted_proxy_headers:
+            forwarded = request.headers.get(header)
+            if forwarded:
+                # Take the first (leftmost) IP from comma-separated list
+                client_id = forwarded.split(",")[0].strip()
+                break
+
         async with self._buckets_lock:
             bucket = self._get_or_create_bucket(client_id)
 

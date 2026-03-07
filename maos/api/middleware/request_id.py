@@ -23,9 +23,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     and returned in the response headers.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Process the request with a correlated request ID."""
         client_id = request.headers.get("X-Request-ID")
         if client_id and _VALID_REQUEST_ID.match(client_id):

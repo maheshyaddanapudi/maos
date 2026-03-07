@@ -40,9 +40,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, auth_config: AuthConfig) -> None:
         super().__init__(app)
         self.config = auth_config
-        self._valid_keys: list[str] = [
-            k.get_secret_value() for k in auth_config.api_keys
-        ]
+        self._valid_keys: list[str] = [k.get_secret_value() for k in auth_config.api_keys]
 
     def _is_valid_key(self, token: str) -> bool:
         """Check if token matches any valid key using constant-time comparison."""
@@ -52,12 +50,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 result = True
         return result
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Check authentication for incoming requests."""
         # Skip auth for excluded paths (exact match to prevent prefix bypass)
-        if request.url.path in self.config.exclude_paths:
+        path = request.url.path.rstrip("/")
+        excluded = {p.rstrip("/") for p in self.config.exclude_paths}
+        if path in excluded:
             return await call_next(request)
 
         if not self.config.enabled:
@@ -69,9 +67,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             logger.warning(
                 "auth_missing",
                 path=request.url.path,
-                client=request.client.host
-                if request.client
-                else "unknown",
+                client=request.client.host if request.client else "unknown",
             )
             return JSONResponse(
                 status_code=401,
@@ -84,9 +80,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 "auth_invalid",
                 path=request.url.path,
                 scheme=scheme,
-                client=request.client.host
-                if request.client
-                else "unknown",
+                client=request.client.host if request.client else "unknown",
             )
             return JSONResponse(
                 status_code=403,

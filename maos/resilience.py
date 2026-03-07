@@ -116,7 +116,13 @@ class CircuitBreaker:
         self._failure_count = 0
         self._last_failure_time: float = 0.0
         self._half_open_calls = 0
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock | None = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create the async lock (lazy init for event loop safety)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     @property
     def state(self) -> str:
@@ -148,7 +154,7 @@ class CircuitBreaker:
             RuntimeError: If circuit is open.
             Exception: If fn raises and breaker opens.
         """
-        async with self._lock:
+        async with self._get_lock():
             current = self.state
 
             if current == "open":
@@ -170,7 +176,7 @@ class CircuitBreaker:
 
     async def _record_failure(self, exc: Exception) -> None:
         """Record a failure and possibly open the circuit."""
-        async with self._lock:
+        async with self._get_lock():
             self._failure_count += 1
             self._last_failure_time = time.monotonic()
 
@@ -187,7 +193,7 @@ class CircuitBreaker:
 
     async def _record_success(self) -> None:
         """Record a success and possibly close the circuit."""
-        async with self._lock:
+        async with self._get_lock():
             if self._state in ("half_open", "open"):
                 prev = self._state
                 self._state = "closed"

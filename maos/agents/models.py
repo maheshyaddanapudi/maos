@@ -86,7 +86,7 @@ class ExternalAgent(BaseModel):
         return self.name
 
     @property
-    def discovered_agent(self):
+    def discovered_agent(self) -> Any:
         """Get the DiscoveredAgent representation for A2A calls."""
         if self._discovered_agent is not None:
             return self._discovered_agent
@@ -108,6 +108,6 @@ class ExternalAgent(BaseModel):
         )
         return self._discovered_agent
 
-    def set_discovered_agent(self, discovered) -> None:
+    def set_discovered_agent(self, discovered: Any) -> None:
         """Set the discovered agent representation."""
         self._discovered_agent = discovered

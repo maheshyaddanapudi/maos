@@ -17,7 +17,7 @@ class A2AIndividualServer:
         name: str,
         description: str,
         handler_fn: Callable[[dict], Any],
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 9010,
         skills: list[dict[str, str]] | None = None,
     ):
@@ -117,7 +117,11 @@ class A2AIndividualServer:
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "result": {
-                        "task": {"id": f"task-{request_id}", "status": "FAILED", "error": str(e)}
+                        "task": {
+                            "id": f"task-{request_id}",
+                            "status": "FAILED",
+                            "error": "Internal processing error",
+                        }
                     },
                 }
 

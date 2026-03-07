@@ -168,9 +168,7 @@ async def initialize_system(config_path: str, checkpointer=None) -> tuple:
     if errors:
         for err in errors:
             logger.error("config_validation_error", error=err)
-        raise ValueError(
-            f"Config validation failed: {len(errors)} errors"
-        )
+        raise ValueError(f"Config validation failed: {len(errors)} errors")
 
     # Initialize LLM registry
     llm_registry = LLMRegistry()
@@ -219,15 +217,9 @@ async def initialize_system(config_path: str, checkpointer=None) -> tuple:
     # Start managed external agents BEFORE building agent registry
     # so they are verified running when the graph is compiled.
     external_servers = []
-    external_configs = {
-        name: ac
-        for name, ac in config.agents.items()
-        if ac.kind == "external"
-    }
+    external_configs = {name: ac for name, ac in config.agents.items() if ac.kind == "external"}
 
-    startup_timeout = float(
-        config.graph.timeouts.external_agent_call_seconds
-    )
+    startup_timeout = float(config.graph.timeouts.external_agent_call_seconds)
 
     for name, agent_config in external_configs.items():
         server = await _start_external_agent(
@@ -238,9 +230,7 @@ async def initialize_system(config_path: str, checkpointer=None) -> tuple:
         )
         if server:
             # Wait for the server to be ready with timeout
-            ready = await _wait_for_server(
-                server, timeout=startup_timeout
-            )
+            ready = await _wait_for_server(server, timeout=startup_timeout)
             if ready:
                 external_servers.append(server)
                 logger.info(
@@ -286,9 +276,7 @@ async def initialize_system(config_path: str, checkpointer=None) -> tuple:
     for server in external_servers:
         name = server.name
         if name in external_configs:
-            agent_registry.register_managed_external(
-                name, external_configs[name], server
-            )
+            agent_registry.register_managed_external(name, external_configs[name], server)
 
     # Register discovered A2A agents (from external discovery)
     for discovered in discovered_agents:
@@ -422,7 +410,7 @@ async def run_interactive(config_path: str) -> None:
     try:
         while True:
             try:
-                user_input = input("You: ").strip()
+                user_input = (await asyncio.to_thread(input, "You: ")).strip()
             except EOFError:
                 break
 
@@ -454,7 +442,8 @@ async def run_interactive(config_path: str) -> None:
                         break
 
             except Exception as e:
-                print(f"\nError: {str(e)}\n")
+                logger.error("interactive_error", error=str(e))
+                print("\nError: An error occurred while processing your request.\n")
 
     finally:
         await shutdown_system(context)

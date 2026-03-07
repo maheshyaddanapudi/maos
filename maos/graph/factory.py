@@ -316,6 +316,7 @@ class GraphFactory:
                 result = await tool.call(kwargs)
                 return str(result)
             except Exception as e:
+                logger.error("tool_invocation_failed", tool=tool.name, error=str(e))
                 return f"Error: {e}"
 
         tool_kwargs = {

@@ -241,10 +241,7 @@ class TestSecurityHeadersMiddleware:
         assert resp.headers["X-Content-Type-Options"] == "nosniff"
         assert resp.headers["X-Frame-Options"] == "DENY"
         assert resp.headers["X-XSS-Protection"] == "1; mode=block"
-        assert (
-            resp.headers["Referrer-Policy"]
-            == "strict-origin-when-cross-origin"
-        )
+        assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
 
 
 @pytest.mark.unit

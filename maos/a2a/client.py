@@ -106,7 +106,9 @@ class A2AClient:
             )
         except Exception as e:
             logger.error("a2a_request_failed", agent=agent.card.name, error=str(e))
-            return A2AResponse(id=request_id, error={"code": -32000, "message": str(e)})
+            return A2AResponse(
+                id=request_id, error={"code": -32000, "message": "A2A request failed"}
+            )
 
     async def stream_message(
         self, agent: DiscoveredAgent, message: str, timeout: int | None = None

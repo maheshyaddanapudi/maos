@@ -209,21 +209,13 @@ class ConversationStore:
                 checkpoint = await asyncio.to_thread(self._checkpointer.get, config)
 
                 if checkpoint:
-                    threads.append(
-                        self._extract_thread_info(
-                            thread_id, checkpoint
-                        )
-                    )
+                    threads.append(self._extract_thread_info(thread_id, checkpoint))
 
         elif self._config.type == "sqlite":
-            threads = await self._list_threads_sqlite(
-                limit, offset, ttl_days=ttl_days
-            )
+            threads = await self._list_threads_sqlite(limit, offset, ttl_days=ttl_days)
 
         elif self._config.type == "postgres":
-            threads = await self._list_threads_postgres(
-                limit, offset, ttl_days=ttl_days
-            )
+            threads = await self._list_threads_postgres(limit, offset, ttl_days=ttl_days)
 
         return threads
 
@@ -258,10 +250,7 @@ class ConversationStore:
                 params: list[int | str] = []
 
                 if ttl_days is not None:
-                    query += (
-                        " AND created_at >= datetime("
-                        "'now', '-' || ? || ' days')"
-                    )
+                    query += " AND created_at >= datetime('now', '-' || ? || ' days')"
                     params.append(ttl_days)
 
                 query += """
@@ -289,9 +278,7 @@ class ConversationStore:
         try:
             return await asyncio.to_thread(_query_sqlite)
         except Exception as e:
-            logger.error(
-                "list_threads_sqlite_error", error=str(e)
-            )
+            logger.error("list_threads_sqlite_error", error=str(e))
             return []
 
     async def _list_threads_postgres(
@@ -306,10 +293,7 @@ class ConversationStore:
         except ImportError:
             logger.warning(
                 "psycopg2_not_installed",
-                message=(
-                    "Install psycopg2-binary for"
-                    " PostgreSQL support"
-                ),
+                message=("Install psycopg2-binary for PostgreSQL support"),
             )
             return []
 
@@ -323,7 +307,10 @@ class ConversationStore:
 
         def _query_postgres() -> list[dict]:
             threads: list[dict] = []
-            conn = psycopg2.connect(uri)
+            try:
+                conn = psycopg2.connect(uri)
+            except Exception:
+                raise RuntimeError("Failed to connect to PostgreSQL")
             try:
                 cursor = conn.cursor()
 
@@ -338,10 +325,7 @@ class ConversationStore:
                 params: list[int] = []
 
                 if ttl_days is not None:
-                    query += (
-                        " AND created_at >= NOW()"
-                        " - INTERVAL '1 day' * %s"
-                    )
+                    query += " AND created_at >= NOW() - INTERVAL '1 day' * %s"
                     params.append(ttl_days)
 
                 query += """
@@ -360,11 +344,7 @@ class ConversationStore:
                             {
                                 "thread_id": thread_id,
                                 "checkpoint_id": checkpoint_id,
-                                "last_update": (
-                                    str(last_update)
-                                    if last_update
-                                    else None
-                                ),
+                                "last_update": (str(last_update) if last_update else None),
                             }
                         )
 
@@ -500,7 +480,10 @@ class ConversationStore:
             return False
 
         def _delete() -> bool:
-            conn = psycopg2.connect(uri)
+            try:
+                conn = psycopg2.connect(uri)
+            except Exception:
+                raise RuntimeError("Failed to connect to PostgreSQL")
             try:
                 cursor = conn.cursor()
                 cursor.execute(

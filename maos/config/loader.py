@@ -119,7 +119,8 @@ class ConfigLoader:
     def _parse_json(self, content: str) -> dict[str, Any]:
         """Parse JSON content."""
         try:
-            return json.loads(content)
+            result: dict[str, Any] = json.loads(content)
+            return result
         except json.JSONDecodeError as e:
             raise ConfigError(f"Invalid JSON: {e}")
 
@@ -140,7 +141,7 @@ class ConfigLoader:
         config_dict = self._apply_env_overrides(config_dict)
 
         try:
-            config = Config.model_validate(config_dict)
+            config: Config = Config.model_validate(config_dict)
         except ValidationError as e:
             errors = []
             for err in e.errors():

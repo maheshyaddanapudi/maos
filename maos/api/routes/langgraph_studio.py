@@ -13,8 +13,9 @@ Endpoints:
 import json
 import re
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -324,7 +325,7 @@ async def update_thread_state(
         await graph.aupdate_state(config, request.values, as_node=request.as_node)
 
         # Return updated state
-        return await get_thread_state(thread_id, context)
+        return cast(ThreadState, await get_thread_state(thread_id, context))
 
     except Exception as e:
         logger.error("update_state_error", thread_id=thread_id, error=str(e))
@@ -432,7 +433,7 @@ async def create_run(
 @router.post("/threads/{thread_id}/runs/stream")
 async def create_run_stream(
     thread_id: str, request: RunCreate, context: dict[str, Any] = Depends(get_app_context)
-):
+) -> StreamingResponse:
     """Create and execute a run with streaming."""
     if not _VALID_THREAD_ID.match(thread_id):
         raise HTTPException(status_code=400, detail="Invalid thread ID format")
@@ -462,7 +463,9 @@ async def create_run_stream(
     )
 
 
-async def _stream_run(graph, agent_registry, thread_id: str, run_id: str, request: RunCreate):
+async def _stream_run(
+    graph: Any, agent_registry: Any, thread_id: str, run_id: str, request: RunCreate
+) -> AsyncIterator[str]:
     """Stream run execution."""
     now = _now_iso()
 
@@ -661,4 +664,4 @@ async def resume_run(
         raise HTTPException(status_code=400, detail="Run is not in interrupted state")
 
     # Create a new run for the resume
-    return await create_run(thread_id, request, context)
+    return cast(Run, await create_run(thread_id, request, context))

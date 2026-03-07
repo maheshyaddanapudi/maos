@@ -82,7 +82,7 @@ def get_app_context() -> dict[str, Any]:
 @router.post("/title", response_model=TitleGenerationResponse)
 async def generate_title(
     request: TitleGenerationRequest, context: dict[str, Any] = Depends(get_app_context)
-):
+) -> TitleGenerationResponse:
     """
     Generate a title for a conversation.
 
@@ -166,7 +166,7 @@ async def generate_title_async(
     request: TitleGenerationRequest,
     background_tasks: BackgroundTasks,
     context: dict[str, Any] = Depends(get_app_context),
-):
+) -> dict[str, str]:
     """
     Queue title generation as a background task.
 

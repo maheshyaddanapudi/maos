@@ -179,7 +179,7 @@ class MCPConnectionManager:
     providing a unified interface for tool discovery and invocation.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connections: dict[str, OfficialMCPConnection] = {}
         self._configs: dict[str, MCPServerConfig] = {}
 

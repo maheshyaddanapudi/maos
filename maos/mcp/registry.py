@@ -66,7 +66,7 @@ class MCPRegistry:
             result = await registry.call_tool("server", "tool", {"arg": "value"})
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the MCP registry."""
         self._connections: dict[str, MCPServerConnection] = {}
         self._exit_stack: AsyncExitStack | None = None
@@ -98,6 +98,7 @@ class MCPRegistry:
 
     async def _connect_server(self, name: str, config: MCPServerConfig) -> None:
         """Connect to a single MCP server."""
+        assert self._exit_stack is not None
         if config.transport != "stdio":
             raise NotImplementedError(
                 f"Transport '{config.transport}' not supported. "

@@ -102,3 +102,42 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pydantic",
+    "pydantic.*",
+    "fastapi",
+    "fastapi.*",
+    "starlette",
+    "starlette.*",
+    "uvicorn",
+    "uvicorn.*",
+    "structlog",
+    "structlog.*",
+    "httpx",
+    "httpx.*",
+    "mcp",
+    "mcp.*",
+    "langchain_core",
+    "langchain_core.*",
+    "langchain_openai",
+    "langchain_openai.*",
+    "langchain_anthropic",
+    "langchain_anthropic.*",
+    "langchain_google_genai",
+    "langchain_google_genai.*",
+    "langchain_community",
+    "langchain_community.*",
+    "langgraph",
+    "langgraph.*",
+    "langgraph_supervisor",
+    "langgraph_supervisor.*",
+    "opentelemetry",
+    "opentelemetry.*",
+    "yaml",
+    "yaml.*",
+    "psycopg2",
+    "psycopg2.*",
+]
+ignore_missing_imports = true

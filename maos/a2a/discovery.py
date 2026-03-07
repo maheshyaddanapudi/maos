@@ -12,16 +12,20 @@ from maos.config.models import A2AConfig, A2AImportPolicy
 logger = structlog.get_logger()
 
 # Private/internal IP ranges that should not be accessed during discovery
-_BLOCKED_IP_PREFIXES = (
+_BLOCKED_IPV4_PREFIXES = (
     "127.",
     "10.",
     "192.168.",
     "0.",
     "169.254.",  # Link-local
-    "[::1]",     # IPv6 loopback
-    "[fc",       # IPv6 unique local
-    "[fd",       # IPv6 unique local
-    "[fe80:",    # IPv6 link-local
+)
+
+# IPv6 prefixes (urlparse strips brackets, so hostname is e.g. "::1", "fc00::1")
+_BLOCKED_IPV6_PREFIXES = (
+    "::1",    # Loopback
+    "fc",     # Unique local fc00::/7
+    "fd",     # Unique local fc00::/7
+    "fe80:",  # Link-local
 )
 
 _BLOCKED_HOSTNAMES = {
@@ -41,8 +45,13 @@ def _is_internal_url(url: str) -> bool:
     if hostname in _BLOCKED_HOSTNAMES:
         return True
 
-    if any(hostname.startswith(prefix) for prefix in _BLOCKED_IP_PREFIXES):
-        return True
+    # IPv6 addresses contain colons (urlparse strips brackets)
+    if ":" in hostname:
+        if any(hostname.startswith(prefix) for prefix in _BLOCKED_IPV6_PREFIXES):
+            return True
+    else:
+        if any(hostname.startswith(prefix) for prefix in _BLOCKED_IPV4_PREFIXES):
+            return True
 
     # Check for 172.16.0.0/12 range
     if hostname.startswith("172."):

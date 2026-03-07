@@ -1,6 +1,6 @@
 """Health check endpoint."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -144,7 +144,7 @@ async def health_check(context: dict[str, Any] = Depends(get_app_context)) -> He
         )
         overall_status = HealthStatus.UNHEALTHY
 
-    return HealthResponse(status=overall_status, components=components, timestamp=datetime.utcnow())
+    return HealthResponse(status=overall_status, components=components, timestamp=datetime.now(UTC))
 
 
 @router.get("/ready")

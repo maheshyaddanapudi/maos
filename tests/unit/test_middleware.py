@@ -284,3 +284,49 @@ class TestRequestIdMiddleware:
 
         assert resp.status_code == 200
         assert resp.headers["X-Request-ID"] == custom_id
+
+    async def test_invalid_request_id_generates_new_uuid(self):
+        """Test that an invalid X-Request-ID is replaced with a valid UUID."""
+        import uuid as uuid_mod
+
+        app = _make_app()
+        app.add_middleware(RequestIdMiddleware)
+
+        invalid_id = "../../etc/passwd; DROP TABLE"
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            resp = await client.get(
+                "/hello",
+                headers={"X-Request-ID": invalid_id},
+            )
+
+        assert resp.status_code == 200
+        returned_id = resp.headers["X-Request-ID"]
+        assert returned_id != invalid_id
+        # Verify the returned ID is a valid UUID
+        uuid_mod.UUID(returned_id)
+
+    async def test_oversized_request_id_rejected(self):
+        """Test that an oversized X-Request-ID is replaced with a new UUID."""
+        import uuid as uuid_mod
+
+        app = _make_app()
+        app.add_middleware(RequestIdMiddleware)
+
+        oversized_id = "a" * 200
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            resp = await client.get(
+                "/hello",
+                headers={"X-Request-ID": oversized_id},
+            )
+
+        assert resp.status_code == 200
+        returned_id = resp.headers["X-Request-ID"]
+        assert returned_id != oversized_id
+        # Verify the returned ID is a valid UUID
+        uuid_mod.UUID(returned_id)

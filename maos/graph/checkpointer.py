@@ -6,6 +6,7 @@ This module creates the appropriate checkpointer based on configuration:
 - PostgresSaver: PostgreSQL (persistent, multi-server, production)
 """
 
+import asyncio
 import os
 
 import structlog
@@ -235,62 +236,63 @@ class ConversationStore:
         """List threads from SQLite database."""
         import sqlite3
 
-        threads = []
-        try:
-            conn = sqlite3.connect(self._config.sqlite_path)
-            cursor = conn.cursor()
+        def _query_sqlite() -> list[dict]:
+            threads: list[dict] = []
+            with sqlite3.connect(self._config.sqlite_path) as conn:
+                cursor = conn.cursor()
 
-            query = """
-                SELECT DISTINCT
-                    json_extract(
+                query = """
+                    SELECT DISTINCT
+                        json_extract(
+                            config,
+                            '$.configurable.thread_id'
+                        ) as thread_id,
+                        MAX(checkpoint_id) as latest_checkpoint,
+                        MAX(created_at) as last_update
+                    FROM checkpoints
+                    WHERE json_extract(
                         config,
                         '$.configurable.thread_id'
-                    ) as thread_id,
-                    MAX(checkpoint_id) as latest_checkpoint,
-                    MAX(created_at) as last_update
-                FROM checkpoints
-                WHERE json_extract(
-                    config,
-                    '$.configurable.thread_id'
-                ) IS NOT NULL
-            """
-            params: list[int | str] = []
+                    ) IS NOT NULL
+                """
+                params: list[int | str] = []
 
-            if ttl_days is not None:
-                query += (
-                    " AND created_at >= datetime("
-                    "'now', '-' || ? || ' days')"
-                )
-                params.append(ttl_days)
-
-            query += """
-                GROUP BY thread_id
-                ORDER BY last_update DESC
-                LIMIT ? OFFSET ?
-            """
-            params.extend([limit, offset])
-
-            cursor.execute(query, params)
-
-            for row in cursor.fetchall():
-                thread_id, checkpoint_id, last_update = row
-                if thread_id:
-                    threads.append(
-                        {
-                            "thread_id": thread_id,
-                            "checkpoint_id": checkpoint_id,
-                            "last_update": last_update,
-                        }
+                if ttl_days is not None:
+                    query += (
+                        " AND created_at >= datetime("
+                        "'now', '-' || ? || ' days')"
                     )
+                    params.append(ttl_days)
 
-            conn.close()
+                query += """
+                    GROUP BY thread_id
+                    ORDER BY last_update DESC
+                    LIMIT ? OFFSET ?
+                """
+                params.extend([limit, offset])
 
+                cursor.execute(query, params)
+
+                for row in cursor.fetchall():
+                    thread_id, checkpoint_id, last_update = row
+                    if thread_id:
+                        threads.append(
+                            {
+                                "thread_id": thread_id,
+                                "checkpoint_id": checkpoint_id,
+                                "last_update": last_update,
+                            }
+                        )
+
+            return threads
+
+        try:
+            return await asyncio.to_thread(_query_sqlite)
         except Exception as e:
             logger.error(
                 "list_threads_sqlite_error", error=str(e)
             )
-
-        return threads
+            return []
 
     async def _list_threads_postgres(
         self,
@@ -301,64 +303,6 @@ class ConversationStore:
         """List threads from PostgreSQL database."""
         try:
             import psycopg2
-
-            uri = self._config.postgres_uri
-            if not uri and self._config.postgres_uri_env:
-                uri = os.environ.get(self._config.postgres_uri_env)
-
-            if not uri:
-                logger.warning("postgres_uri_not_configured")
-                return []
-
-            conn = psycopg2.connect(uri)
-            cursor = conn.cursor()
-
-            query = """
-                SELECT DISTINCT
-                    thread_id,
-                    MAX(checkpoint_id) as latest_checkpoint,
-                    MAX(created_at) as last_update
-                FROM checkpoints
-                WHERE thread_id IS NOT NULL
-            """
-            params: list[int] = []
-
-            if ttl_days is not None:
-                query += (
-                    " AND created_at >= NOW()"
-                    " - INTERVAL '%s days'"
-                )
-                params.append(ttl_days)
-
-            query += """
-                GROUP BY thread_id
-                ORDER BY last_update DESC
-                LIMIT %s OFFSET %s
-            """
-            params.extend([limit, offset])
-
-            cursor.execute(query, params)
-
-            threads = []
-            for row in cursor.fetchall():
-                thread_id, checkpoint_id, last_update = row
-                if thread_id:
-                    threads.append(
-                        {
-                            "thread_id": thread_id,
-                            "checkpoint_id": checkpoint_id,
-                            "last_update": (
-                                str(last_update)
-                                if last_update
-                                else None
-                            ),
-                        }
-                    )
-
-            cursor.close()
-            conn.close()
-            return threads
-
         except ImportError:
             logger.warning(
                 "psycopg2_not_installed",
@@ -368,6 +312,69 @@ class ConversationStore:
                 ),
             )
             return []
+
+        uri = self._config.postgres_uri
+        if not uri and self._config.postgres_uri_env:
+            uri = os.environ.get(self._config.postgres_uri_env)
+
+        if not uri:
+            logger.warning("postgres_uri_not_configured")
+            return []
+
+        def _query_postgres() -> list[dict]:
+            threads: list[dict] = []
+            conn = psycopg2.connect(uri)
+            try:
+                cursor = conn.cursor()
+
+                query = """
+                    SELECT DISTINCT
+                        thread_id,
+                        MAX(checkpoint_id) as latest_checkpoint,
+                        MAX(created_at) as last_update
+                    FROM checkpoints
+                    WHERE thread_id IS NOT NULL
+                """
+                params: list[int] = []
+
+                if ttl_days is not None:
+                    query += (
+                        " AND created_at >= NOW()"
+                        " - INTERVAL '%s days'"
+                    )
+                    params.append(ttl_days)
+
+                query += """
+                    GROUP BY thread_id
+                    ORDER BY last_update DESC
+                    LIMIT %s OFFSET %s
+                """
+                params.extend([limit, offset])
+
+                cursor.execute(query, params)
+
+                for row in cursor.fetchall():
+                    thread_id, checkpoint_id, last_update = row
+                    if thread_id:
+                        threads.append(
+                            {
+                                "thread_id": thread_id,
+                                "checkpoint_id": checkpoint_id,
+                                "last_update": (
+                                    str(last_update)
+                                    if last_update
+                                    else None
+                                ),
+                            }
+                        )
+
+                cursor.close()
+            finally:
+                conn.close()
+            return threads
+
+        try:
+            return await asyncio.to_thread(_query_postgres)
         except Exception as e:
             logger.error(
                 "list_threads_postgres_error",
@@ -457,23 +464,22 @@ class ConversationStore:
         """Delete thread from SQLite."""
         import sqlite3
 
+        def _delete() -> bool:
+            with sqlite3.connect(self._config.sqlite_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    DELETE FROM checkpoints
+                    WHERE json_extract(config, '$.configurable.thread_id') = ?
+                """,
+                    (thread_id,),
+                )
+                deleted = cursor.rowcount > 0
+                conn.commit()
+                return deleted
+
         try:
-            conn = sqlite3.connect(self._config.sqlite_path)
-            cursor = conn.cursor()
-
-            cursor.execute(
-                """
-                DELETE FROM checkpoints
-                WHERE json_extract(config, '$.configurable.thread_id') = ?
-            """,
-                (thread_id,),
-            )
-
-            deleted = cursor.rowcount > 0
-            conn.commit()
-            conn.close()
-            return deleted
-
+            return await asyncio.to_thread(_delete)
         except Exception as e:
             logger.error("delete_thread_sqlite_error", error=str(e))
             return False
@@ -482,31 +488,34 @@ class ConversationStore:
         """Delete thread from PostgreSQL."""
         try:
             import psycopg2
-
-            uri = self._config.postgres_uri
-            if not uri and self._config.postgres_uri_env:
-                uri = os.environ.get(self._config.postgres_uri_env)
-
-            if not uri:
-                return False
-
-            conn = psycopg2.connect(uri)
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "DELETE FROM checkpoints WHERE thread_id = %s",
-                (thread_id,),
-            )
-
-            deleted = cursor.rowcount > 0
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return deleted
-
         except ImportError:
             logger.warning("psycopg2_not_installed")
             return False
+
+        uri = self._config.postgres_uri
+        if not uri and self._config.postgres_uri_env:
+            uri = os.environ.get(self._config.postgres_uri_env)
+
+        if not uri:
+            return False
+
+        def _delete() -> bool:
+            conn = psycopg2.connect(uri)
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM checkpoints WHERE thread_id = %s",
+                    (thread_id,),
+                )
+                deleted = cursor.rowcount > 0
+                conn.commit()
+                cursor.close()
+            finally:
+                conn.close()
+            return deleted
+
+        try:
+            return await asyncio.to_thread(_delete)
         except Exception as e:
             logger.error("delete_thread_postgres_error", error=str(e))
             return False

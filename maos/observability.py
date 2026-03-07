@@ -1,6 +1,9 @@
 """Observability utilities for MAOS."""
 
+import asyncio
 import time
+from collections import defaultdict
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -58,7 +61,7 @@ class RequestContext:
         name: str,
         duration_ms: float,
         metadata: dict | None = None,
-    ):
+    ) -> None:
         """Record a completed span."""
         self.spans.append(
             {
@@ -78,8 +81,8 @@ class RequestContext:
 async def trace_operation(
     name: str,
     context: RequestContext | None = None,
-    **attrs,
-):
+    **attrs: Any,
+) -> AsyncIterator[None]:
     """Context manager to trace an async operation.
 
     Args:
@@ -134,9 +137,12 @@ class CostTracker:
     }
 
     def __init__(self) -> None:
-        self._usage: dict[str, dict[str, int]] = {}
+        self._usage: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"input": 0, "output": 0}
+        )
+        self._lock = asyncio.Lock()
 
-    def record(
+    async def record(
         self,
         model: str,
         input_tokens: int,
@@ -149,35 +155,46 @@ class CostTracker:
             input_tokens: Number of input tokens used.
             output_tokens: Number of output tokens used.
         """
-        if model not in self._usage:
-            self._usage[model] = {"input": 0, "output": 0}
-        self._usage[model]["input"] += input_tokens
-        self._usage[model]["output"] += output_tokens
+        async with self._lock:
+            self._usage[model]["input"] += input_tokens
+            self._usage[model]["output"] += output_tokens
 
-    def get_total_cost(self) -> float:
+    async def get_total_cost(self) -> float:
         """Calculate total estimated cost in USD.
 
         Returns:
             Estimated total cost rounded to 6 decimal places.
         """
-        total = 0.0
-        for model, usage in self._usage.items():
-            costs = self.MODEL_COSTS.get(model, {"input": 5.0, "output": 15.0})
-            total += (usage["input"] / 1_000_000) * costs["input"]
-            total += (usage["output"] / 1_000_000) * costs["output"]
-        return round(total, 6)
+        async with self._lock:
+            total = 0.0
+            for model, usage in self._usage.items():
+                costs = self.MODEL_COSTS.get(
+                    model, {"input": 5.0, "output": 15.0}
+                )
+                total += (usage["input"] / 1_000_000) * costs["input"]
+                total += (usage["output"] / 1_000_000) * costs["output"]
+            return round(total, 6)
 
-    def get_usage_summary(self) -> dict:
+    async def get_usage_summary(self) -> dict[str, Any]:
         """Get a summary of usage by model and total cost.
 
         Returns:
             Dict with by_model breakdown and total_cost_usd.
         """
-        return {
-            "by_model": dict(self._usage),
-            "total_cost_usd": self.get_total_cost(),
-        }
+        async with self._lock:
+            total = 0.0
+            for model, usage in self._usage.items():
+                costs = self.MODEL_COSTS.get(
+                    model, {"input": 5.0, "output": 15.0}
+                )
+                total += (usage["input"] / 1_000_000) * costs["input"]
+                total += (usage["output"] / 1_000_000) * costs["output"]
+            return {
+                "by_model": dict(self._usage),
+                "total_cost_usd": round(total, 6),
+            }
 
-    def reset(self) -> None:
+    async def reset(self) -> None:
         """Reset all tracked usage data."""
-        self._usage.clear()
+        async with self._lock:
+            self._usage.clear()

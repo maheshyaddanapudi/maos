@@ -1,7 +1,7 @@
 """Unit tests for resilience module."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -188,86 +188,121 @@ class TestCircuitBreaker:
 
     async def test_transitions_to_half_open_after_recovery(self):
         """Test transition to half_open after recovery_timeout."""
-        cb = CircuitBreaker(
-            "test", failure_threshold=2, recovery_timeout=0.1
+        start_time = 1000.0
+        # Calls: _record_failure x2 (set _last_failure_time), then state check
+        mock_time = MagicMock(
+            side_effect=[start_time, start_time, start_time + 0.2]
         )
-        fn = AsyncMock(side_effect=RuntimeError("fail"))
+        with patch("maos.resilience.time.monotonic", mock_time):
+            cb = CircuitBreaker(
+                "test", failure_threshold=2, recovery_timeout=0.1
+            )
+            fn = AsyncMock(side_effect=RuntimeError("fail"))
 
-        # Trip the breaker
-        for _ in range(2):
-            with pytest.raises(RuntimeError):
-                await cb.call(fn)
+            # Trip the breaker
+            for _ in range(2):
+                with pytest.raises(RuntimeError):
+                    await cb.call(fn)
 
-        assert cb.state == "open"
-
-        # Wait for recovery timeout
-        await asyncio.sleep(0.15)
-
-        assert cb.state == "half_open"
+            assert cb.state == "half_open"
 
     async def test_half_open_closes_on_success(self):
         """Test that half_open transitions to closed on success."""
-        cb = CircuitBreaker(
-            "test", failure_threshold=2, recovery_timeout=0.1
+        start_time = 1000.0
+        # Calls: _record_failure x2 (set _last_failure_time),
+        # then state check (half_open), then state check in call(),
+        # then _record_success state check
+        mock_time = MagicMock(
+            side_effect=[
+                start_time,       # _record_failure call 1
+                start_time,       # _record_failure call 2
+                start_time + 0.2, # state check -> half_open
+                start_time + 0.2, # state check in call()
+                start_time + 0.2, # any further checks
+                start_time + 0.2,
+                start_time + 0.2,
+            ]
         )
-        fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
+        with patch("maos.resilience.time.monotonic", mock_time):
+            cb = CircuitBreaker(
+                "test", failure_threshold=2, recovery_timeout=0.1
+            )
+            fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
 
-        # Trip the breaker
-        for _ in range(2):
-            with pytest.raises(RuntimeError):
-                await cb.call(fn_fail)
+            # Trip the breaker
+            for _ in range(2):
+                with pytest.raises(RuntimeError):
+                    await cb.call(fn_fail)
 
-        # Wait for recovery
-        await asyncio.sleep(0.15)
-        assert cb.state == "half_open"
+            assert cb.state == "half_open"
 
-        # Successful call should close the circuit
-        fn_ok = AsyncMock(return_value="recovered")
-        result = await cb.call(fn_ok)
+            # Successful call should close the circuit
+            fn_ok = AsyncMock(return_value="recovered")
+            result = await cb.call(fn_ok)
 
-        assert result == "recovered"
-        assert cb.state == "closed"
+            assert result == "recovered"
+            assert cb.state == "closed"
 
     async def test_half_open_reopens_on_failure(self):
         """Test that half_open transitions back to open on failure."""
-        cb = CircuitBreaker(
-            "test", failure_threshold=2, recovery_timeout=0.1
+        start_time = 1000.0
+        mock_time = MagicMock(
+            side_effect=[
+                start_time,       # _record_failure call 1
+                start_time,       # _record_failure call 2
+                start_time + 0.2, # state check -> half_open
+                start_time + 0.2, # state check in call()
+                start_time + 0.2, # _record_failure call 3
+                start_time + 0.2,
+                start_time + 0.2,
+            ]
         )
-        fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
+        with patch("maos.resilience.time.monotonic", mock_time):
+            cb = CircuitBreaker(
+                "test", failure_threshold=2, recovery_timeout=0.1
+            )
+            fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
 
-        # Trip the breaker
-        for _ in range(2):
+            # Trip the breaker
+            for _ in range(2):
+                with pytest.raises(RuntimeError):
+                    await cb.call(fn_fail)
+
+            assert cb.state == "half_open"
+
+            # Failure in half_open should re-open
             with pytest.raises(RuntimeError):
                 await cb.call(fn_fail)
 
-        # Wait for recovery
-        await asyncio.sleep(0.15)
-        assert cb.state == "half_open"
-
-        # Failure in half_open should re-open
-        with pytest.raises(RuntimeError):
-            await cb.call(fn_fail)
-
-        # State should be open (failure count >= threshold)
-        assert cb._state == "open"
+            # State should be open (failure count >= threshold)
+            assert cb._state == "open"
 
     async def test_state_property_returns_correct_string(self):
         """Test that state property returns correct state strings."""
-        cb = CircuitBreaker(
-            "test", failure_threshold=2, recovery_timeout=0.1
+        start_time = 1000.0
+        mock_time = MagicMock(
+            side_effect=[
+                start_time,       # _record_failure call 1
+                start_time,       # _record_failure call 2
+                start_time,       # state check -> open (not enough time)
+                start_time + 0.2, # state check -> half_open
+            ]
         )
+        with patch("maos.resilience.time.monotonic", mock_time):
+            cb = CircuitBreaker(
+                "test", failure_threshold=2, recovery_timeout=0.1
+            )
 
-        assert cb.state == "closed"
+            assert cb.state == "closed"
 
-        fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
-        for _ in range(2):
-            with pytest.raises(RuntimeError):
-                await cb.call(fn_fail)
+            fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
+            for _ in range(2):
+                with pytest.raises(RuntimeError):
+                    await cb.call(fn_fail)
 
-        assert cb.state == "open"
+            assert cb.state == "open"
 
-        await asyncio.sleep(0.15)
-        assert cb.state == "half_open"
+            assert cb.state == "half_open"
 
     async def test_concurrent_calls_are_safe(self):
         """Test that concurrent calls do not corrupt state."""
@@ -299,22 +334,34 @@ class TestCircuitBreaker:
 
     async def test_half_open_max_calls_exceeded(self):
         """Test that half_open rejects after max test calls."""
-        cb = CircuitBreaker(
-            "test",
-            failure_threshold=2,
-            recovery_timeout=0.1,
-            half_open_max_calls=1,
+        start_time = 1000.0
+        mock_time = MagicMock(
+            side_effect=[
+                start_time,       # _record_failure call 1
+                start_time,       # _record_failure call 2
+                start_time + 0.2, # state check -> half_open
+                start_time + 0.2, # state check in call()
+                start_time + 0.2, # _record_failure call 3
+                start_time + 0.2,
+                start_time + 0.2,
+            ]
         )
-        fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
+        with patch("maos.resilience.time.monotonic", mock_time):
+            cb = CircuitBreaker(
+                "test",
+                failure_threshold=2,
+                recovery_timeout=0.1,
+                half_open_max_calls=1,
+            )
+            fn_fail = AsyncMock(side_effect=RuntimeError("fail"))
 
-        # Trip the breaker
-        for _ in range(2):
-            with pytest.raises(RuntimeError):
+            # Trip the breaker
+            for _ in range(2):
+                with pytest.raises(RuntimeError):
+                    await cb.call(fn_fail)
+
+            assert cb.state == "half_open"
+
+            # First half-open call allowed (will fail, re-opening)
+            with pytest.raises(RuntimeError, match="fail"):
                 await cb.call(fn_fail)
-
-        await asyncio.sleep(0.15)
-        assert cb.state == "half_open"
-
-        # First half-open call allowed (will fail, re-opening)
-        with pytest.raises(RuntimeError, match="fail"):
-            await cb.call(fn_fail)

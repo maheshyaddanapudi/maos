@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskStatus(StrEnum):
@@ -60,8 +60,7 @@ class AgentCard(BaseModel):
     # Source URL (not from JSON)
     url: str | None = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
     @property
     def endpoint(self) -> str | None:

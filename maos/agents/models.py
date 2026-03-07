@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 
 class Agent(BaseModel):
@@ -73,9 +73,9 @@ class ExternalAgent(BaseModel):
     assigned_to: str | None = None  # Worker name for tool mode
 
     # For managed external agents - the server instance
-    _server: Any = None
+    _server: Any = PrivateAttr(default=None)
     # The discovered agent representation (used by A2A client)
-    _discovered_agent: Any = None
+    _discovered_agent: Any = PrivateAttr(default=None)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

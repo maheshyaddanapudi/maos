@@ -1,10 +1,14 @@
 """Authentication middleware for MAOS API."""
 
+import hmac
+
 import structlog
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-from starlette.middleware.base import BaseHTTPMiddleware
+from pydantic import BaseModel, Field, SecretStr
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
+from starlette.types import ASGIApp
 
 logger = structlog.get_logger()
 
@@ -13,7 +17,7 @@ class AuthConfig(BaseModel):
     """Authentication configuration."""
 
     enabled: bool = False
-    api_keys: list[str] = Field(default_factory=list)
+    api_keys: list[SecretStr] = Field(default_factory=list)
     exclude_paths: list[str] = Field(
         default_factory=lambda: [
             "/health",
@@ -33,12 +37,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
     Authorization header.
     """
 
-    def __init__(self, app, auth_config: AuthConfig):
+    def __init__(self, app: ASGIApp, auth_config: AuthConfig) -> None:
         super().__init__(app)
         self.config = auth_config
-        self._valid_keys: set[str] = set(auth_config.api_keys)
+        self._valid_keys: list[str] = [
+            k.get_secret_value() for k in auth_config.api_keys
+        ]
 
-    async def dispatch(self, request: Request, call_next):
+    def _is_valid_key(self, token: str) -> bool:
+        """Check if token matches any valid key using constant-time comparison."""
+        return any(
+            hmac.compare_digest(token, key) for key in self._valid_keys
+        )
+
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         """Check authentication for incoming requests."""
         # Skip auth for excluded paths
         if any(
@@ -66,7 +80,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         scheme, _, token = auth_header.partition(" ")
-        if scheme.lower() != "bearer" or token not in self._valid_keys:
+        if scheme.lower() != "bearer" or not self._is_valid_key(token):
             logger.warning(
                 "auth_invalid",
                 path=request.url.path,

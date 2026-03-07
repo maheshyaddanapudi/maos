@@ -1,5 +1,6 @@
 """LangChain-based LLM adapters using official provider packages."""
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -86,6 +87,7 @@ class LangChainAdapter(LLMAdapter):
             "input_tokens": 0,
             "output_tokens": 0,
         }
+        self._usage_lock = asyncio.Lock()
 
     async def invoke(
         self, messages: list[Message], tools: list[ToolDefinition] | None = None, **kwargs: Any
@@ -127,8 +129,9 @@ class LangChainAdapter(LLMAdapter):
                 "completion_tokens": output_tok,
                 "total_tokens": response.usage_metadata.get("total_tokens", 0),
             }
-            self._total_tokens_used["input_tokens"] += input_tok
-            self._total_tokens_used["output_tokens"] += output_tok
+            async with self._usage_lock:
+                self._total_tokens_used["input_tokens"] += input_tok
+                self._total_tokens_used["output_tokens"] += output_tok
 
         return LLMResponse(
             content=response.content if isinstance(response.content, str) else "",

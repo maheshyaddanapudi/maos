@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from maos.observability import ObservabilityConfig, RequestContext, trace_operation
+from maos.observability import CostTracker, ObservabilityConfig, RequestContext, trace_operation
 
 
 @pytest.mark.unit
@@ -121,3 +121,49 @@ class TestTraceOperation:
         assert ctx.spans[0]["name"] == "error_op"
         assert ctx.spans[0]["metadata"] == {"error": "oops"}
         assert ctx.spans[0]["duration_ms"] >= 0
+
+
+@pytest.mark.unit
+class TestCostTracker:
+    """Tests for CostTracker."""
+
+    async def test_record_and_get_total_cost(self):
+        """Test recording usage and getting total cost."""
+        tracker = CostTracker()
+        await tracker.record("gpt-4o", 100, 50)
+        cost = await tracker.get_total_cost()
+        assert cost > 0
+
+    async def test_record_multiple_models(self):
+        """Test recording usage for multiple models."""
+        tracker = CostTracker()
+        await tracker.record("gpt-4o", 100, 50)
+        await tracker.record("gpt-4o-mini", 200, 100)
+        summary = await tracker.get_usage_summary()
+        assert "gpt-4o" in summary["by_model"]
+        assert "gpt-4o-mini" in summary["by_model"]
+
+    async def test_reset_clears_usage(self):
+        """Test that reset clears all tracked usage."""
+        tracker = CostTracker()
+        await tracker.record("gpt-4o", 100, 50)
+        await tracker.reset()
+        cost = await tracker.get_total_cost()
+        assert cost == 0.0
+
+    async def test_unknown_model_uses_default_cost(self):
+        """Test that an unknown model uses the default cost rates."""
+        tracker = CostTracker()
+        await tracker.record("unknown-model", 1000, 500)
+        cost = await tracker.get_total_cost()
+        assert cost > 0
+
+    async def test_concurrent_records_safe(self):
+        """Test that concurrent record calls are thread-safe."""
+        tracker = CostTracker()
+        await asyncio.gather(
+            *[tracker.record("gpt-4o", 10, 5) for _ in range(20)]
+        )
+        summary = await tracker.get_usage_summary()
+        assert summary["by_model"]["gpt-4o"]["input"] == 200
+        assert summary["by_model"]["gpt-4o"]["output"] == 100

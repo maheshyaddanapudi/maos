@@ -105,9 +105,16 @@ async def chat(
     try:
         logger.info("chat_start", thread_id=thread_id, message_count=len(messages))
 
+        app_config = context.get("config")
+        timeout_secs = 300.0
+        if app_config and hasattr(app_config, "graph"):
+            timeout_secs = float(
+                app_config.graph.timeouts.total_execution_seconds
+            )
+
         result = await asyncio.wait_for(
             graph.ainvoke(initial_state, config=config),
-            timeout=300.0,
+            timeout=timeout_secs,
         )
 
         # Check if interrupted for user input
@@ -167,7 +174,7 @@ async def chat(
         logger.error("chat_timeout", thread_id=thread_id)
         raise HTTPException(
             status_code=504,
-            detail="Chat execution timed out after 300s",
+            detail=f"Chat execution timed out after {timeout_secs:.0f}s",
         )
     except Exception as e:
         logger.error("chat_error", thread_id=thread_id, error=str(e))
@@ -203,11 +210,18 @@ async def resume_chat(request: ResumeRequest, context: dict[str, Any] = Depends(
             )
 
         # Resume with user input
+        app_config = context.get("config")
+        timeout_secs = 300.0
+        if app_config and hasattr(app_config, "graph"):
+            timeout_secs = float(
+                app_config.graph.timeouts.total_execution_seconds
+            )
+
         result = await asyncio.wait_for(
             graph.ainvoke(
                 Command(resume=request.input), config=config
             ),
-            timeout=300.0,
+            timeout=timeout_secs,
         )
 
         # Check if interrupted again

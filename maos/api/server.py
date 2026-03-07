@@ -2,7 +2,7 @@
 
 import os
 import traceback
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -40,7 +40,7 @@ class AppContext:
     This is used for dependency injection into route handlers.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.config: Config | None = None
         self.llm_registry = None
         self.mcp_registry = None
@@ -185,7 +185,7 @@ def create_app(
         )
 
     # Override dependency in all routers
-    def override_context():
+    def override_context() -> dict[str, Any]:
         return get_app_context()
 
     # Include routers with dependency override
@@ -221,15 +221,15 @@ def create_app(
 
 
 def set_app_context(
-    llm_registry=None,
-    mcp_registry=None,
-    tool_registry=None,
-    skill_registry=None,
-    skillset_registry=None,
-    agent_registry=None,
-    graph=None,
-    checkpointer=None,
-    conversation_store=None,
+    llm_registry: Any = None,
+    mcp_registry: Any = None,
+    tool_registry: Any = None,
+    skill_registry: Any = None,
+    skillset_registry: Any = None,
+    agent_registry: Any = None,
+    graph: Any = None,
+    checkpointer: Any = None,
+    conversation_store: Any = None,
 ) -> None:
     """
     Set the application context.
@@ -265,7 +265,7 @@ def get_context() -> AppContext:
 
 
 @asynccontextmanager
-async def default_lifespan(app: FastAPI):
+async def default_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Default lifespan manager.
 

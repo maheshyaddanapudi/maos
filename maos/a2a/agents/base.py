@@ -22,7 +22,7 @@ def find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
+        return int(s.getsockname()[1])
 
 
 class ExternalAgentServer(BaseAgentExecutor):
@@ -108,12 +108,12 @@ class ExternalAgentServer(BaseAgentExecutor):
         app = FastAPI(title=f"A2A Agent: {self.name}")
 
         @app.get("/.well-known/agent.json")
-        async def get_agent_card():
+        async def get_agent_card() -> dict[str, Any]:
             """Return the A2A agent card."""
             return self._get_agent_card()
 
         @app.post("/")
-        async def handle_request(request: Request):
+        async def handle_request(request: Request) -> dict[str, Any]:
             """Handle A2A request."""
             body = await request.json()
             return await self._handle_a2a_request(body)

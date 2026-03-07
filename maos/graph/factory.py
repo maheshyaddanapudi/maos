@@ -10,7 +10,7 @@ The supervisor automatically discovers workers from the agents list -
 no need to hardcode worker names in system prompts.
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from langchain_core.messages import AIMessage
@@ -47,11 +47,13 @@ def create_send_message_tool() -> BaseTool:
             The user's response.
         """
         # This triggers an interrupt - the actual handling is in the graph
-        return interrupt(
-            {
-                "type": "input_required",
-                "prompt": message,
-            }
+        return str(
+            interrupt(
+                {
+                    "type": "input_required",
+                    "prompt": message,
+                }
+            )
         )
 
     return StructuredTool.from_function(
@@ -199,6 +201,8 @@ class GraphFactory:
                 logger.warning(f"LLM config not found for worker {name}, using default")
                 worker_llm_config = self._config.llms.get("default")
 
+            if not worker_llm_config:
+                raise ValueError(f"No LLM config found for worker {name}")
             worker_model = self._llm_factory.create_chat_model(worker_llm_config)
 
             # Get tools for this worker
@@ -251,7 +255,7 @@ class GraphFactory:
 
         return workflow
 
-    def compile(self, checkpointer=None):
+    def compile(self, checkpointer: Any = None) -> Any:
         """Build and compile the graph."""
         workflow = self.build()
         return workflow.compile(checkpointer=checkpointer)
@@ -273,7 +277,7 @@ class GraphFactory:
 
         return tools
 
-    def _convert_to_langchain_tool(self, tool) -> BaseTool:
+    def _convert_to_langchain_tool(self, tool: Any) -> BaseTool:
         """Convert a MAOS tool to a LangChain tool."""
         from pydantic import Field, create_model
 
@@ -315,7 +319,7 @@ class GraphFactory:
         else:
             args_model = None
 
-        async def invoke_tool(**kwargs) -> str:
+        async def invoke_tool(**kwargs: Any) -> str:
             try:
                 result = await tool.call(kwargs)
                 return str(result)

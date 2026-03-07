@@ -102,7 +102,7 @@ class LLMAdapter(ABC):
         pass
 
     @abstractmethod
-    async def stream(
+    def stream(
         self, messages: list[Message], tools: list[ToolDefinition] | None = None, **kwargs: Any
     ) -> AsyncIterator[LLMChunk]:
         """
@@ -116,7 +116,7 @@ class LLMAdapter(ABC):
         Yields:
             LLM chunks as they are generated.
         """
-        pass
+        ...
 
     @abstractmethod
     def get_model_name(self) -> str:

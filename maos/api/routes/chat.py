@@ -1,7 +1,7 @@
 """Chat endpoints for conversation handling."""
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -31,12 +31,12 @@ def get_app_context() -> dict[str, Any]:
     return {}
 
 
-def get_graph():
+def get_graph() -> Any:
     """Get the compiled graph - to be overridden by dependency injection."""
     return None
 
 
-def get_checkpointer():
+def get_checkpointer() -> Any:
     """Get the checkpointer - to be overridden by dependency injection."""
     return None
 
@@ -44,7 +44,7 @@ def get_checkpointer():
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: ChatRequest, http_request: Request, context: dict[str, Any] = Depends(get_app_context)
-):
+) -> Any:
     """
     Start or continue a chat conversation.
 
@@ -92,7 +92,7 @@ async def chat(
     # Handle streaming response
     if request.stream:
         return StreamingResponse(
-            stream_graph_events(graph, initial_state, config),
+            stream_graph_events(graph, cast(dict[str, Any], initial_state), config),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -183,7 +183,9 @@ async def chat(
 
 
 @router.post("/chat/resume", response_model=ChatResponse)
-async def resume_chat(request: ResumeRequest, context: dict[str, Any] = Depends(get_app_context)):
+async def resume_chat(
+    request: ResumeRequest, context: dict[str, Any] = Depends(get_app_context)
+) -> Any:
     """
     Resume a paused conversation with user input.
 
@@ -278,7 +280,7 @@ async def resume_chat(request: ResumeRequest, context: dict[str, Any] = Depends(
 @router.post("/chat/stream")
 async def chat_stream(
     request: ChatRequest, http_request: Request, context: dict[str, Any] = Depends(get_app_context)
-):
+) -> Any:
     """
     Start a streaming chat conversation.
 

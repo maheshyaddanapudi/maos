@@ -1,5 +1,7 @@
 """Tool registry for materializing tools from MCP servers."""
 
+from typing import Any
+
 import structlog
 
 from maos.config.models import ToolConfig
@@ -66,7 +68,9 @@ class ToolRegistry:
         )
 
         # Bind the invoke function
-        async def invoke(args: dict, conn=connection, tool_name=config.tool_name):
+        async def invoke(
+            args: dict[str, Any], conn: Any = connection, tool_name: str = config.tool_name
+        ) -> Any:
             return await conn.call_tool(tool_name, args)
 
         tool.set_invoke_fn(invoke)

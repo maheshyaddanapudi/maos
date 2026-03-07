@@ -490,7 +490,7 @@ class ConversationStore:
                     "DELETE FROM checkpoints WHERE thread_id = %s",
                     (thread_id,),
                 )
-                deleted = cursor.rowcount > 0
+                deleted: bool = cursor.rowcount > 0
                 conn.commit()
                 cursor.close()
             finally:

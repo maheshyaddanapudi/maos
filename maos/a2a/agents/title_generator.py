@@ -119,8 +119,9 @@ Examples:
             ),
         ]
 
+        assert self._llm is not None
         response = await self._llm.invoke(messages)
-        return response.content.strip().strip('"').strip("'")
+        return str(response.content.strip().strip('"').strip("'"))
 
     def _generate_fallback_title(self, content: str) -> str:
         """Generate a simple fallback title without LLM."""

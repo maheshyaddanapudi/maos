@@ -1,6 +1,7 @@
 """A2A agent discovery."""
 
 import asyncio
+from typing import cast
 from urllib.parse import urljoin
 
 import httpx
@@ -199,9 +200,12 @@ class A2ADiscovery:
         """Fetch host index from a multi-agent host."""
         index_url = urljoin(base_url, config.discovery.host_index_path)
         try:
+            assert self._http_client is not None
             response = await self._http_client.get(index_url)
             if response.status_code == 200:
-                return HostIndex.model_validate(response.json())
+                data = response.json()
+                if data is not None:
+                    return cast(HostIndex, HostIndex.model_validate(data))
         except Exception as e:
             logger.debug("host_index_not_found", url=index_url, error=str(e))
         return None
@@ -239,12 +243,15 @@ class A2ADiscovery:
     async def _fetch_agent_card(self, url: str) -> AgentCard | None:
         """Fetch and parse an agent card."""
         try:
+            assert self._http_client is not None
             response = await self._http_client.get(url)
             if response.status_code == 200:
-                card = AgentCard.model_validate(response.json())
-                card.url = url
-                logger.debug("fetched_agent_card", name=card.name, url=url)
-                return card
+                data = response.json()
+                if data is not None:
+                    card = cast(AgentCard, AgentCard.model_validate(data))
+                    card.url = url
+                    logger.debug("fetched_agent_card", name=card.name, url=url)
+                    return card
         except Exception as e:
             logger.warning("failed_to_fetch_agent_card", url=url, error=str(e))
         return None

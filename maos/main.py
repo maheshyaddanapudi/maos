@@ -3,8 +3,10 @@
 import argparse
 import asyncio
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import structlog
 from langgraph.checkpoint.memory import MemorySaver
@@ -32,7 +34,7 @@ logger = structlog.get_logger()
 
 
 async def _wait_for_server(
-    server,
+    server: Any,
     timeout: float = 30.0,
     poll_interval: float = 0.2,
 ) -> bool:
@@ -70,10 +72,10 @@ async def _wait_for_server(
 
 async def _start_external_agent(
     name: str,
-    agent_config,
-    llm_registry,
-    llm_factory,
-):
+    agent_config: Any,
+    llm_registry: Any,
+    llm_factory: Any,
+) -> Any:
     """
     Start an external A2A agent server.
 
@@ -129,7 +131,9 @@ async def _start_external_agent(
         return None
 
 
-async def initialize_system(config_path: str, checkpointer=None) -> tuple:
+async def initialize_system(
+    config_path: str, checkpointer: Any = None
+) -> tuple[Any, dict[str, Any]]:
     """
     Initialize all MAOS components from configuration.
 
@@ -357,7 +361,7 @@ async def run_server(config_path: str, host: str, port: int) -> None:
 
     # Create FastAPI lifespan
     @asynccontextmanager
-    async def lifespan(app):
+    async def lifespan(app: Any) -> AsyncIterator[None]:
         logger.info("maos_server_starting", host=host, port=port)
         yield
         await shutdown_system(context)

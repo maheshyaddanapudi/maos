@@ -26,11 +26,11 @@ class ManagedExternalAgent:
 
     @property
     def endpoint(self) -> str:
-        return self.server.endpoint
+        return str(self.server.endpoint)
 
     @property
     def port(self) -> int:
-        return self.server.port
+        return int(self.server.port)
 
 
 class AgentRegistry:

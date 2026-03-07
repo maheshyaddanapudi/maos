@@ -37,7 +37,7 @@ def get_app_context() -> dict[str, Any]:
     return {}
 
 
-def _extract_interrupt_message(state) -> str | None:
+def _extract_interrupt_message(state: Any) -> str | None:
     """Extract interrupt message from graph state if interrupted."""
     if not state.next:
         return None
@@ -46,7 +46,8 @@ def _extract_interrupt_message(state) -> str | None:
     if tasks and hasattr(tasks[0], "interrupts") and tasks[0].interrupts:
         interrupt_value = tasks[0].interrupts[0].value
         if isinstance(interrupt_value, dict) and interrupt_value.get("type") == "input_required":
-            return interrupt_value.get("prompt", "")
+            prompt: str | None = interrupt_value.get("prompt", "")
+            return prompt
 
     return None
 
@@ -73,7 +74,7 @@ async def create_chat_completion(
     request: OpenAIChatRequest,
     http_request: Request,
     context: dict[str, Any] = Depends(get_app_context),
-):
+) -> Any:
     """
     OpenAI-compatible chat completions endpoint with interrupt handling.
 

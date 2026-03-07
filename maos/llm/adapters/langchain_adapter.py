@@ -153,7 +153,7 @@ class LangChainAdapter(LLMAdapter):
             model = model.bind_tools(_to_langchain_tools(tools))
 
         # Stream with retry on initial connection
-        async def _start_stream():
+        async def _start_stream() -> Any:
             return model.astream(lc_messages, **kwargs)
 
         astream = await retry_with_backoff(

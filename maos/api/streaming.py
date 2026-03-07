@@ -43,7 +43,7 @@ def create_stream_event(event_type: StreamEventType, data: dict[str, Any]) -> St
 
 
 async def stream_graph_events(
-    graph, initial_state: dict[str, Any], config: dict[str, Any]
+    graph: Any, initial_state: dict[str, Any], config: dict[str, Any]
 ) -> AsyncIterator[str]:
     """
     Stream events from graph execution.
@@ -201,7 +201,7 @@ class OpenAIStreamFormatter:
 
 
 async def stream_openai_response(
-    graph, initial_state: dict[str, Any], config: dict[str, Any], model: str = "maos"
+    graph: Any, initial_state: dict[str, Any], config: dict[str, Any], model: str = "maos"
 ) -> AsyncIterator[str]:
     """
     Stream graph execution in OpenAI-compatible format.
@@ -250,10 +250,10 @@ async def stream_openai_response(
 
 
 async def stream_openai_response_with_interrupt(
-    graph,
+    graph: Any,
     config: dict[str, Any],
-    roster: list,
-    messages: list,
+    roster: list[str],
+    messages: list[Any],
     is_resuming: bool,
     latest_user_message: str,
     model: str = "maos",
@@ -374,11 +374,11 @@ def _extract_stream_content(event: dict[str, Any]) -> str | None:
     return None
 
 
-def _extract_interrupt_from_state(state) -> str | None:
+def _extract_interrupt_from_state(state: Any) -> str | None:
     """Extract interrupt message from graph state."""
     tasks = getattr(state, "tasks", [])
     if tasks and hasattr(tasks[0], "interrupts") and tasks[0].interrupts:
         interrupt_value = tasks[0].interrupts[0].value
         if isinstance(interrupt_value, dict) and interrupt_value.get("type") == "input_required":
-            return interrupt_value.get("prompt", "")
+            return str(interrupt_value.get("prompt", ""))
     return None

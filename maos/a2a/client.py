@@ -2,6 +2,7 @@
 
 import uuid
 from collections.abc import AsyncIterator
+from typing import cast
 
 import httpx
 import structlog
@@ -107,7 +108,7 @@ class A2AClient:
                 ),
             )
 
-            a2a_response = A2AResponse.model_validate(response.json())
+            a2a_response = cast(A2AResponse, A2AResponse.model_validate(response.json()))
 
             logger.debug(
                 "received_a2a_response",

@@ -1,7 +1,7 @@
 """A2A host server for multiple agents."""
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from fastapi import FastAPI, Request
@@ -133,4 +133,4 @@ class A2AAgentHandler:
 
     async def handle_request(self, request: dict) -> dict:
         """Handle an A2A request."""
-        return await self._handler_fn(request)
+        return cast(dict[Any, Any], await self._handler_fn(request))

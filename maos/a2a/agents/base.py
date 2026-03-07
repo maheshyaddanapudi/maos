@@ -60,6 +60,7 @@ class ExternalAgentServer(BaseAgentExecutor):
         self._port = port or find_free_port()
         self._skills = skills or []
         self._app: FastAPI | None = None
+        self._server: Any | None = None
         self._server_task: asyncio.Task | None = None
         self._running = False
 
@@ -228,9 +229,9 @@ class ExternalAgentServer(BaseAgentExecutor):
             port=self._port,
             log_level="warning",
         )
-        server = uvicorn.Server(config)
+        self._server = uvicorn.Server(config)
 
-        self._server_task = asyncio.create_task(server.serve())
+        self._server_task = asyncio.create_task(self._server.serve())
         self._running = True
 
         # Wait briefly for server to start
@@ -239,13 +240,31 @@ class ExternalAgentServer(BaseAgentExecutor):
         logger.info("started_external_agent_background", name=self.name, endpoint=self.endpoint)
 
     async def stop(self) -> None:
-        """Stop the A2A server."""
+        """Gracefully stop the A2A server.
+
+        Signals uvicorn to exit via should_exit flag, allowing the ASGI lifespan
+        protocol to complete its shutdown handshake before the event loop closes.
+        Falls back to task cancellation if graceful shutdown times out.
+        """
         if self._server_task and not self._server_task.done():
-            self._server_task.cancel()
+            # Signal uvicorn to exit gracefully — this lets the lifespan
+            # receive queue drain properly instead of dying mid-protocol.
+            if self._server:
+                self._server.should_exit = True
+
             try:
-                await self._server_task
+                await asyncio.wait_for(self._server_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("graceful_shutdown_timeout", name=self.name)
+                self._server_task.cancel()
+                try:
+                    await self._server_task
+                except asyncio.CancelledError:
+                    pass
             except asyncio.CancelledError:
                 pass
+
+        self._server = None
         self._running = False
         logger.info("stopped_external_agent", name=self.name)
 

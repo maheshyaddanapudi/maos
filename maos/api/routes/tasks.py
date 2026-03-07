@@ -27,7 +27,10 @@ class TitleGenerationRequest(BaseModel):
     """Request for title generation."""
 
     messages: list[dict[str, str]] = Field(
-        ..., description="Conversation messages to generate title for", min_length=1
+        ...,
+        description="Conversation messages to generate title for",
+        min_length=1,
+        max_length=50,
     )
     thread_id: str | None = Field(None, description="Thread ID for the conversation")
 

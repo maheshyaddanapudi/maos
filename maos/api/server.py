@@ -1,13 +1,24 @@
 """FastAPI server factory for MAOS."""
 
+import os
+import traceback
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from maos.api.middleware.auth import AuthConfig, AuthMiddleware
+from maos.api.middleware.rate_limiter import (
+    RateLimitConfig,
+    RateLimitMiddleware,
+)
+from maos.api.middleware.security_headers import (
+    SecurityHeadersMiddleware,
+)
 from maos.api.routes import (
     agents,
     chat,
@@ -100,6 +111,71 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # --- Security middleware ---
+    # Security headers on every response
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # Rate limiting (per-client token bucket)
+    security = serving.security
+    rate_cfg = RateLimitConfig(
+        enabled=security.rate_limit_enabled,
+        requests_per_minute=security.rate_limit_rpm,
+        burst_size=security.rate_limit_burst,
+    )
+    app.add_middleware(RateLimitMiddleware, config=rate_cfg)
+
+    # Authentication (Bearer API keys)
+    api_keys: list[str] = []
+    if security.api_key_env:
+        raw = os.environ.get(security.api_key_env, "")
+        api_keys = [
+            k.strip() for k in raw.split(",") if k.strip()
+        ]
+    auth_cfg = AuthConfig(
+        enabled=security.auth_enabled,
+        api_keys=api_keys,
+    )
+    app.add_middleware(AuthMiddleware, auth_config=auth_cfg)
+
+    # Request ID correlation
+    from maos.api.middleware.request_id import (
+        RequestIdMiddleware,
+    )
+
+    app.add_middleware(RequestIdMiddleware)
+
+    # --- Global exception handler ---
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        """Return standardised JSON for unhandled errors."""
+        if isinstance(exc, HTTPException):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "error": "http_error",
+                    "message": exc.detail,
+                },
+            )
+        logger.error(
+            "unhandled_exception",
+            path=request.url.path,
+            method=request.method,
+            error=str(exc),
+            traceback=traceback.format_exc(),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "internal_server_error",
+                "message": (
+                    "An unexpected error occurred."
+                ),
+            },
+        )
 
     # Override dependency in all routers
     def override_context():

@@ -15,6 +15,7 @@ from maos.a2a.models import (
     DiscoveredAgent,
     TaskStatus,
 )
+from maos.resilience import retry_with_backoff
 
 logger = structlog.get_logger()
 
@@ -69,12 +70,25 @@ class A2AClient:
         logger.debug("sending_a2a_message", agent=agent.card.name, endpoint=agent.endpoint)
 
         try:
-            response = await client.post(
-                agent.endpoint,
-                json=request.model_dump(by_alias=True),
-                headers={"Content-Type": "application/json"},
+
+            async def _do_post() -> httpx.Response:
+                resp = await client.post(
+                    agent.endpoint,
+                    json=request.model_dump(by_alias=True),
+                    headers={"Content-Type": "application/json"},
+                )
+                resp.raise_for_status()
+                return resp
+
+            response = await retry_with_backoff(
+                _do_post,
+                max_retries=2,
+                base_delay=0.5,
+                retryable_exceptions=(
+                    httpx.TransportError,
+                    httpx.HTTPStatusError,
+                ),
             )
-            response.raise_for_status()
 
             a2a_response = A2AResponse.model_validate(response.json())
 

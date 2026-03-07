@@ -31,6 +31,43 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
+async def _wait_for_server(
+    server,
+    timeout: float = 30.0,
+    poll_interval: float = 0.2,
+) -> bool:
+    """Wait for an external agent server to become ready.
+
+    Args:
+        server: The server instance (must have an ``endpoint``).
+        timeout: Maximum seconds to wait.
+        poll_interval: Seconds between readiness checks.
+
+    Returns:
+        True if the server is ready within the timeout.
+    """
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        # Check if the server has a port assigned and is serving
+        if getattr(server, "port", None) is not None:
+            try:
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"{server.endpoint}/.well-known/agent.json",
+                        timeout=2.0,
+                    )
+                    if resp.status_code < 500:
+                        return True
+            except Exception:
+                pass
+        await asyncio.sleep(poll_interval)
+    return False
+
+
 async def _start_external_agent(
     name: str,
     agent_config,
@@ -120,7 +157,20 @@ async def initialize_system(config_path: str, checkpointer=None):
     # Load configuration
     loader = ConfigLoader()
     config = loader.load(config_path)
-    logger.info("config_loaded", agents=len(config.agents), llms=len(config.llms))
+    logger.info(
+        "config_loaded",
+        agents=len(config.agents),
+        llms=len(config.llms),
+    )
+
+    # Validate cross-references
+    errors = config.validate_references()
+    if errors:
+        for err in errors:
+            logger.error("config_validation_error", error=err)
+        raise ValueError(
+            f"Config validation failed: {len(errors)} errors"
+        )
 
     # Initialize LLM registry
     llm_registry = LLMRegistry()
@@ -159,9 +209,61 @@ async def initialize_system(config_path: str, checkpointer=None):
     if config.a2a.discovery.seeds:
         discovery = A2ADiscovery()
         discovered_agents = await discovery.discover(config.a2a)
-        logger.info("a2a_discovery_complete", count=len(discovered_agents))
+        logger.info(
+            "a2a_discovery_complete",
+            count=len(discovered_agents),
+        )
     else:
         discovered_agents = []
+
+    # Start managed external agents BEFORE building agent registry
+    # so they are verified running when the graph is compiled.
+    external_servers = []
+    external_configs = {
+        name: ac
+        for name, ac in config.agents.items()
+        if ac.kind == "external"
+    }
+
+    startup_timeout = float(
+        config.graph.timeouts.external_agent_call_seconds
+    )
+
+    for name, agent_config in external_configs.items():
+        server = await _start_external_agent(
+            name=name,
+            agent_config=agent_config,
+            llm_registry=llm_registry,
+            llm_factory=llm_factory,
+        )
+        if server:
+            # Wait for the server to be ready with timeout
+            ready = await _wait_for_server(
+                server, timeout=startup_timeout
+            )
+            if ready:
+                external_servers.append(server)
+                logger.info(
+                    "external_agent_ready",
+                    name=name,
+                    endpoint=server.endpoint,
+                )
+            else:
+                logger.error(
+                    "external_agent_not_ready",
+                    name=name,
+                    timeout=startup_timeout,
+                )
+                try:
+                    await server.stop()
+                except Exception:
+                    pass
+
+    if external_servers:
+        logger.info(
+            "started_external_agents",
+            count=len(external_servers),
+        )
 
     # Initialize Agent factory and registry
     agent_factory = AgentFactory(
@@ -175,29 +277,24 @@ async def initialize_system(config_path: str, checkpointer=None):
 
     # Build all agents from config (handles supervisor/worker ordering)
     agent_registry.build(config)
-    logger.info("agent_registry_initialized", count=len(config.agents))
+    logger.info(
+        "agent_registry_initialized",
+        count=len(config.agents),
+    )
 
-    # Start managed external agents (defined in config with kind: external)
-    external_servers = []
-    for name, agent_config in agent_registry.get_external_configs().items():
-        server = await _start_external_agent(
-            name=name,
-            agent_config=agent_config,
-            llm_registry=llm_registry,
-            llm_factory=llm_factory,
-        )
-        if server:
-            external_servers.append(server)
-            agent_registry.register_managed_external(name, agent_config, server)
-
-    if external_servers:
-        logger.info("started_external_agents", count=len(external_servers))
+    # Register successfully started external agents
+    for server in external_servers:
+        name = server.name
+        if name in external_configs:
+            agent_registry.register_managed_external(
+                name, external_configs[name], server
+            )
 
     # Register discovered A2A agents (from external discovery)
     for discovered in discovered_agents:
         agent_registry.add_external(discovered)
 
-    # Build the graph using LangGraph native factory
+    # Build the graph AFTER all external agents are verified
     graph_factory = GraphFactory(
         config=config,
         agent_registry=agent_registry,

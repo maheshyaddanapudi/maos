@@ -203,26 +203,83 @@ class UIConfig(BaseModel):
     mode: Literal["none", "chainlit", "openwebui_compatible"] = "none"
 
 
+class APISecurityConfig(BaseModel):
+    """Security configuration for the API layer."""
+
+    auth_enabled: bool = False
+    api_key_env: str | None = Field(
+        default=None,
+        description=(
+            "Environment variable containing comma-separated"
+            " API keys"
+        ),
+    )
+    rate_limit_enabled: bool = False
+    rate_limit_rpm: int = Field(
+        default=60,
+        ge=1,
+        description="Requests per minute per client",
+    )
+    rate_limit_burst: int = Field(
+        default=10,
+        ge=1,
+        description="Maximum burst size for rate limiting",
+    )
+
+
+class ObservabilityConfig(BaseModel):
+    """Observability configuration for tracing and metrics."""
+
+    tracing_enabled: bool = Field(
+        default=False,
+        description="Enable distributed tracing",
+    )
+    metrics_enabled: bool = Field(
+        default=False,
+        description="Enable metrics collection",
+    )
+    log_prompts: bool = Field(
+        default=False,
+        description="Log LLM prompts (may contain sensitive data)",
+    )
+    log_tool_calls: bool = Field(
+        default=True,
+        description="Log tool call invocations and results",
+    )
+
+
 class ServingConfig(BaseModel):
     """API and UI serving configuration."""
 
     api: APIConfig = Field(default_factory=APIConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
+    security: APISecurityConfig = Field(
+        default_factory=APISecurityConfig
+    )
 
 
 class Config(BaseModel):
     """Root configuration model for MAOS."""
 
     llms: dict[str, LLMConfig]
-    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    mcp_servers: dict[str, MCPServerConfig] = Field(
+        default_factory=dict,
+    )
     tools: dict[str, ToolConfig] = Field(default_factory=dict)
     skills: dict[str, SkillConfig] = Field(default_factory=dict)
-    skillsets: dict[str, SkillsetConfig] = Field(default_factory=dict)
+    skillsets: dict[str, SkillsetConfig] = Field(
+        default_factory=dict,
+    )
     agents: dict[str, AgentConfig]
-    native_workers: NativeWorkersConfig = Field(default_factory=NativeWorkersConfig)
+    native_workers: NativeWorkersConfig = Field(
+        default_factory=NativeWorkersConfig,
+    )
     a2a: A2AConfig = Field(default_factory=A2AConfig)
     graph: GraphConfig = Field(default_factory=GraphConfig)
     serving: ServingConfig = Field(default_factory=ServingConfig)
+    observability: ObservabilityConfig = Field(
+        default_factory=ObservabilityConfig,
+    )
 
     def get_supervisor(self) -> tuple[str, AgentConfig]:
         """Get the supervisor agent configuration."""

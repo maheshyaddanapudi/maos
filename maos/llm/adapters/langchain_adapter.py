@@ -22,6 +22,7 @@ from maos.llm.base import (
     ToolCallRequest,
     ToolDefinition,
 )
+from maos.resilience import retry_with_backoff
 
 
 def _to_langchain_messages(messages: list[Message]) -> list[BaseMessage]:
@@ -93,8 +94,14 @@ class LangChainAdapter(LLMAdapter):
         if tools:
             model = model.bind_tools(_to_langchain_tools(tools))
 
-        # Invoke
-        response = await model.ainvoke(lc_messages, **kwargs)
+        # Invoke with retry
+        response = await retry_with_backoff(
+            model.ainvoke,
+            lc_messages,
+            max_retries=3,
+            base_delay=1.0,
+            **kwargs,
+        )
 
         # Extract tool calls
         tool_calls = []
@@ -134,12 +141,35 @@ class LangChainAdapter(LLMAdapter):
         if tools:
             model = model.bind_tools(_to_langchain_tools(tools))
 
-        # Stream
-        async for chunk in model.astream(lc_messages, **kwargs):
-            content = chunk.content if isinstance(chunk.content, str) else ""
-            yield LLMChunk(content=content, tool_calls=None, finish_reason=None, done=False)
+        # Stream with retry on initial connection
+        async def _start_stream():
+            return model.astream(lc_messages, **kwargs)
 
-        yield LLMChunk(content="", tool_calls=None, finish_reason="stop", done=True)
+        astream = await retry_with_backoff(
+            _start_stream,
+            max_retries=3,
+            base_delay=1.0,
+        )
+
+        async for chunk in astream:
+            content = (
+                chunk.content
+                if isinstance(chunk.content, str)
+                else ""
+            )
+            yield LLMChunk(
+                content=content,
+                tool_calls=None,
+                finish_reason=None,
+                done=False,
+            )
+
+        yield LLMChunk(
+            content="",
+            tool_calls=None,
+            finish_reason="stop",
+            done=True,
+        )
 
     def get_model_name(self) -> str:
         """Get the model name."""

@@ -6,6 +6,7 @@ converted to normal assistant messages, and the next user message resumes
 the conversation.
 """
 
+import asyncio
 import time
 import uuid
 from typing import Any
@@ -146,22 +147,37 @@ async def create_chat_completion(
         if is_resuming:
             # Resume paused conversation with user's response
             logger.info("openai_chat_resume", thread_id=thread_id)
-            result = await graph.ainvoke(Command(resume=latest_user_message), config=config)
+            result = await asyncio.wait_for(
+                graph.ainvoke(
+                    Command(resume=latest_user_message),
+                    config=config,
+                ),
+                timeout=300.0,
+            )
         else:
             # Start new conversation
             logger.info("openai_chat_start", thread_id=thread_id)
 
             # Convert messages
             messages = [
-                {"role": msg.role, "content": msg.content, "name": msg.name}
+                {
+                    "role": msg.role,
+                    "content": msg.content,
+                    "name": msg.name,
+                }
                 for msg in request.messages
             ]
 
             initial_state = create_initial_state(
-                messages=messages, roster=roster, thread_id=thread_id
+                messages=messages,
+                roster=roster,
+                thread_id=thread_id,
             )
 
-            result = await graph.ainvoke(initial_state, config=config)
+            result = await asyncio.wait_for(
+                graph.ainvoke(initial_state, config=config),
+                timeout=300.0,
+            )
 
         # Check if graph is now interrupted
         state = await graph.aget_state(config)
@@ -210,8 +226,18 @@ async def create_chat_completion(
             input_pending=False,
         )
 
+    except TimeoutError:
+        logger.error("openai_chat_timeout", thread_id=thread_id)
+        raise HTTPException(
+            status_code=504,
+            detail="Chat execution timed out after 300s",
+        )
     except Exception as e:
-        logger.error("openai_chat_error", error=str(e), thread_id=thread_id)
+        logger.error(
+            "openai_chat_error",
+            error=str(e),
+            thread_id=thread_id,
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 

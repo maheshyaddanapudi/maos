@@ -1,5 +1,6 @@
 """Chat endpoints for conversation handling."""
 
+import asyncio
 from typing import Any
 
 import structlog
@@ -104,7 +105,10 @@ async def chat(
     try:
         logger.info("chat_start", thread_id=thread_id, message_count=len(messages))
 
-        result = await graph.ainvoke(initial_state, config=config)
+        result = await asyncio.wait_for(
+            graph.ainvoke(initial_state, config=config),
+            timeout=300.0,
+        )
 
         # Check if interrupted for user input
         state = await graph.aget_state(config)
@@ -159,9 +163,18 @@ async def chat(
             done=result.get("done", True),
         )
 
+    except TimeoutError:
+        logger.error("chat_timeout", thread_id=thread_id)
+        raise HTTPException(
+            status_code=504,
+            detail="Chat execution timed out after 300s",
+        )
     except Exception as e:
         logger.error("chat_error", thread_id=thread_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Chat execution error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat execution error: {str(e)}",
+        )
 
 
 @router.post("/chat/resume", response_model=ChatResponse)
@@ -190,7 +203,12 @@ async def resume_chat(request: ResumeRequest, context: dict[str, Any] = Depends(
             )
 
         # Resume with user input
-        result = await graph.ainvoke(Command(resume=request.input), config=config)
+        result = await asyncio.wait_for(
+            graph.ainvoke(
+                Command(resume=request.input), config=config
+            ),
+            timeout=300.0,
+        )
 
         # Check if interrupted again
         state = await graph.aget_state(config)

@@ -1,5 +1,6 @@
 """Tool data models."""
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -50,7 +51,16 @@ class Tool(BaseModel):
         """
         if self._invoke_fn is None:
             raise RuntimeError(f"Tool {self.id} not connected")
-        return await self._invoke_fn(arguments)
+        try:
+            return await asyncio.wait_for(
+                self._invoke_fn(arguments),
+                timeout=self.timeout_seconds,
+            )
+        except TimeoutError:
+            raise RuntimeError(
+                f"Tool {self.id} timed out "
+                f"after {self.timeout_seconds}s"
+            )
 
     def to_llm_definition(self) -> dict[str, Any]:
         """Convert to LLM tool definition format."""

@@ -2,7 +2,9 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
+import respx
 
 from maos.a2a.client import A2AClient
 from maos.a2a.discovery import A2ADiscovery
@@ -480,6 +482,72 @@ class TestA2AClient:
         await client.close()
         mock_http.aclose.assert_called_once()
         assert client._http_client is None
+
+    async def test_fetch_agent_card(self):
+        """Test fetching an agent card from a URL."""
+        card_json = {
+            "name": "test-agent",
+            "description": "A test agent",
+            "protocolVersion": "1.0",
+            "supportedInterfaces": [
+                {"url": "http://agent-host/a2a", "protocol_binding": "JSONRPC"}
+            ],
+            "capabilities": {"streaming": False},
+            "skills": [],
+        }
+        async with respx.mock:
+            respx.get("http://agent-host/.well-known/agent.json").mock(
+                return_value=httpx.Response(200, json=card_json)
+            )
+            async with httpx.AsyncClient() as http_client:
+                discovery = A2ADiscovery(http_client=http_client)
+                card = await discovery._fetch_agent_card(
+                    "http://agent-host/.well-known/agent.json"
+                )
+
+        assert card is not None
+        assert card.name == "test-agent"
+        assert card.endpoint == "http://agent-host/a2a"
+
+    async def test_send_message(self):
+        """Test sending a message to an agent."""
+        card = AgentCard(
+            name="target",
+            supportedInterfaces=[
+                ServiceInterface(url="http://target/a2a", protocol_binding="JSONRPC")
+            ],
+        )
+        agent = DiscoveredAgent(
+            card=card,
+            source_url="http://target/.well-known/agent.json",
+            endpoint="http://target/a2a",
+        )
+
+        response_json = {
+            "jsonrpc": "2.0",
+            "id": "test-id",
+            "result": {
+                "task": {
+                    "id": "task-1",
+                    "status": "COMPLETED",
+                    "result": {
+                        "role": "agent",
+                        "parts": [{"type": "text", "text": "Hello back"}],
+                    },
+                }
+            },
+        }
+
+        async with respx.mock:
+            respx.post("http://target/a2a").mock(
+                return_value=httpx.Response(200, json=response_json)
+            )
+            client = A2AClient()
+            response = await client.send_message(agent, "Hello")
+            await client.close()
+
+        assert response is not None
+        assert response.get_content() == "Hello back"
 
 
 @pytest.mark.unit

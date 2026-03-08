@@ -54,6 +54,9 @@ dependencies = [
     # HTTP client
     "httpx>=0.25.0",
 
+    # Multi-framework agent support
+    "any-agent>=1.14.0",
+
     # Utilities
     "python-dotenv>=1.0.0",
     "structlog>=23.0.0",
@@ -61,6 +64,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+frameworks = [
+    "any-agent[openai]>=1.14.0",
+    "any-agent[google]>=1.14.0",
+    "any-agent[smolagents]>=1.14.0",
+    "any-agent[llama-index]>=1.14.0",
+    "any-agent[agno]>=1.14.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.23.0,<1.0.0",
@@ -133,6 +143,8 @@ module = [
     "langgraph.*",
     "langgraph_supervisor",
     "langgraph_supervisor.*",
+    "any_agent",
+    "any_agent.*",
     "opentelemetry",
     "opentelemetry.*",
     "yaml",

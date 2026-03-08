@@ -331,4 +331,20 @@ class Config(BaseModel):
                     f"Agent '{agent_name}' references unknown skillset '{agent.skillset}'"
                 )
 
+        # Check any-agent availability for non-langchain frameworks
+        non_langchain = [
+            (name, agent)
+            for name, agent in self.agents.items()
+            if agent.kind == AgentKind.NATIVE_WORKER and agent.framework != "langchain"
+        ]
+        if non_langchain:
+            try:
+                import any_agent  # noqa: F401
+            except ImportError:
+                agent_name, agent = non_langchain[0]
+                errors.append(
+                    f"Agent '{agent_name}' uses framework '{agent.framework}' which "
+                    f"requires any-agent. Install: pip install 'any-agent[{agent.framework}]'"
+                )
+
         return errors

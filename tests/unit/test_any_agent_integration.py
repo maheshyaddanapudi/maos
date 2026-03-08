@@ -40,7 +40,7 @@ class TestBuildAnyAgentModelId:
 
     def test_openai_provider(self):
         cfg = LLMConfig(provider=LLMProvider.OPENAI, model="gpt-4o")
-        assert build_any_agent_model_id(cfg) == "gpt-4o"
+        assert build_any_agent_model_id(cfg) == "openai/gpt-4o"
 
     def test_anthropic_provider(self):
         cfg = LLMConfig(provider=LLMProvider.ANTHROPIC, model="claude-3-5-sonnet-20241022")
@@ -56,7 +56,7 @@ class TestBuildAnyAgentModelId:
 
     def test_openai_compatible_provider(self):
         cfg = LLMConfig(provider=LLMProvider.OPENAI_COMPATIBLE, model="my-model")
-        assert build_any_agent_model_id(cfg) == "my-model"
+        assert build_any_agent_model_id(cfg) == "openai/my-model"
 
     def test_azure_openai_provider(self):
         cfg = LLMConfig(provider=LLMProvider.AZURE_OPENAI, model="gpt-4o-deployment")
@@ -313,6 +313,20 @@ class TestCreateAnyAgentWorkerGraph:
         call_args = MockAnyAgent.create.call_args
         assert call_args[0][0] == "llama_index"
 
+    @patch("any_agent.AnyAgent")
+    @patch("any_agent.AgentConfig")
+    def test_missing_framework_package_raises_import_error(self, MockConfig, MockAnyAgent):
+        """NameError from missing framework package is wrapped as ImportError."""
+        MockAnyAgent.create.side_effect = NameError("name 'BaseConverter' is not defined")
+
+        with pytest.raises(ImportError, match="requires additional dependencies"):
+            create_any_agent_worker_graph(
+                name="worker",
+                framework="openai",
+                model_id="openai/gpt-4o",
+                system_prompt="Test.",
+            )
+
 
 # ---------------------------------------------------------------------------
 # GraphFactory framework branching
@@ -437,7 +451,7 @@ class TestGraphFactoryFrameworkBranching:
         mock_react.assert_not_called()
         # Verify model_id was built correctly
         call_kwargs = mock_anyagent.call_args[1]
-        assert call_kwargs["model_id"] == "gpt-4o"
+        assert call_kwargs["model_id"] == "openai/gpt-4o"
         assert call_kwargs["framework"] == "openai"
 
 

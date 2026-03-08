@@ -153,11 +153,11 @@ def build_any_agent_model_id(llm_config: LLMConfig) -> str:
     to the prefix any-agent expects.
     """
     prefix_map = {
-        "openai": "",
+        "openai": "openai/",
         "anthropic": "anthropic/",
         "google": "gemini/",
         "ollama": "ollama/",
-        "openai_compatible": "",
+        "openai_compatible": "openai/",
         "azure_openai": "azure/",
     }
     prefix = prefix_map.get(llm_config.provider, "")
@@ -251,7 +251,14 @@ def create_any_agent_worker_graph(
         model_args=model_args or {},
     )
 
-    any_agent_instance = AnyAgent.create(any_framework, agent_config)
+    try:
+        any_agent_instance = AnyAgent.create(any_framework, agent_config)
+    except (ImportError, NameError, ModuleNotFoundError) as e:
+        raise ImportError(
+            f"Framework '{framework}' requires additional dependencies. "
+            f"Install with: pip install 'any-agent[{framework}]'\n"
+            f"Original error: {e}"
+        ) from e
 
     class AnyAgentState(TypedDict):
         messages: Annotated[list, add_messages]

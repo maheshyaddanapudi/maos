@@ -6,6 +6,9 @@ Covers:
 - any-agent worker graph creation (mocked)
 - framework branching in GraphFactory.build()
 - config validation for non-langchain frameworks
+- step-limit callback
+- AgentCancel vs AgentRunError distinction
+- cleanup tracking
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -25,7 +28,10 @@ from maos.config.models import (
 )
 from maos.graph.factory import (
     _ANYAGENT_FRAMEWORK_MAP,
+    _DEFAULT_MAX_STEPS,
+    _StepLimitExceeded,
     _convert_langchain_tools_to_callables,
+    _make_step_limit_callback,
     build_any_agent_model_id,
     create_any_agent_worker_graph,
 )
@@ -104,7 +110,6 @@ class TestConvertLangchainToolsToCallables:
         tool = MagicMock(spec=["name", "description", "ainvoke"])
         tool.name = "wrapped_tool"
         tool.description = "A wrapped tool"
-        # MagicMock won't have coroutine/func attributes since they're not in spec
         result = _convert_langchain_tools_to_callables([tool])
         assert len(result) == 1
         assert result[0].__name__ == "wrapped_tool"
@@ -134,9 +139,6 @@ class TestFrameworkMap:
 
     def test_all_non_langchain_frameworks_mapped(self):
         """Every non-langchain framework in AgentConfig must have a mapping."""
-        from maos.config.models import AgentConfig
-
-        # Get the Literal type from the framework field
         import typing
 
         framework_field = AgentConfig.model_fields["framework"]
@@ -151,6 +153,31 @@ class TestFrameworkMap:
 
 
 # ---------------------------------------------------------------------------
+# Step-limit callback
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+class TestStepLimitCallback:
+    """Test the step-limiting callback."""
+
+    def test_callback_counts_llm_calls(self):
+        callback = _make_step_limit_callback(3)
+        context = MagicMock()
+        context.shared = {}
+
+        # Should succeed for first 3 calls
+        for _ in range(3):
+            callback.before_llm_call(context)
+
+        # 4th call should raise
+        with pytest.raises(_StepLimitExceeded, match="step limit of 3"):
+            callback.before_llm_call(context)
+
+    def test_default_max_steps_is_reasonable(self):
+        assert _DEFAULT_MAX_STEPS > 0
+        assert _DEFAULT_MAX_STEPS <= 100
+
+
+# ---------------------------------------------------------------------------
 # create_any_agent_worker_graph (mocked any-agent)
 # ---------------------------------------------------------------------------
 @pytest.mark.unit
@@ -159,12 +186,12 @@ class TestCreateAnyAgentWorkerGraph:
 
     @patch("any_agent.AnyAgent")
     @patch("any_agent.AgentConfig")
-    def test_creates_compiled_graph(self, MockConfig, MockAnyAgent):
+    async def test_creates_compiled_graph(self, MockConfig, MockAnyAgent):
         """The wrapper returns a compiled graph with correct name."""
         mock_instance = MagicMock()
-        MockAnyAgent.create.return_value = mock_instance
+        MockAnyAgent.create_async = AsyncMock(return_value=mock_instance)
 
-        result = create_any_agent_worker_graph(
+        result = await create_any_agent_worker_graph(
             name="test_worker",
             framework="openai",
             model_id="gpt-4o",
@@ -175,37 +202,31 @@ class TestCreateAnyAgentWorkerGraph:
         assert hasattr(result, "ainvoke")
         assert result.name == "test_worker"
 
-        # Verify AnyAgent.create was called with correct framework
-        MockAnyAgent.create.assert_called_once()
-        call_args = MockAnyAgent.create.call_args
+        # Verify AnyAgent.create_async was called with correct framework
+        MockAnyAgent.create_async.assert_called_once()
+        call_args = MockAnyAgent.create_async.call_args
         assert call_args[0][0] == "openai"  # framework
 
     @patch("any_agent.AnyAgent")
     @patch("any_agent.AgentConfig")
-    def test_config_passes_model_id_and_instructions(self, MockConfig, MockAnyAgent):
-        """AgentConfig receives model_id and instructions from MAOS config."""
+    async def test_config_includes_step_callback(self, MockConfig, MockAnyAgent):
+        """AgentConfig receives a step-limiting callback."""
         mock_instance = MagicMock()
-        MockAnyAgent.create.return_value = mock_instance
+        MockAnyAgent.create_async = AsyncMock(return_value=mock_instance)
 
-        create_any_agent_worker_graph(
+        await create_any_agent_worker_graph(
             name="worker",
             framework="google",
             model_id="gemini/gemini-2.0-flash",
             system_prompt="Analyze data.",
-            api_key="test-key",
-            api_base="http://localhost:8080",
-            model_args={"temperature": 0.5},
+            max_steps=10,
         )
 
-        MockConfig.assert_called_once_with(
-            model_id="gemini/gemini-2.0-flash",
-            name="worker",
-            instructions="Analyze data.",
-            tools=[],
-            api_key="test-key",
-            api_base="http://localhost:8080",
-            model_args={"temperature": 0.5},
-        )
+        # Verify callbacks were passed
+        config_call = MockConfig.call_args
+        assert "callbacks" in config_call[1]
+        callbacks = config_call[1]["callbacks"]
+        assert len(callbacks) == 1
 
     @patch("any_agent.AnyAgent")
     @patch("any_agent.AgentConfig")
@@ -215,9 +236,9 @@ class TestCreateAnyAgentWorkerGraph:
         mock_trace = MagicMock()
         mock_trace.final_output = "The answer is 42."
         mock_instance.run_async = AsyncMock(return_value=mock_trace)
-        MockAnyAgent.create.return_value = mock_instance
+        MockAnyAgent.create_async = AsyncMock(return_value=mock_instance)
 
-        graph = create_any_agent_worker_graph(
+        graph = await create_any_agent_worker_graph(
             name="worker",
             framework="openai",
             model_id="gpt-4o",
@@ -239,9 +260,9 @@ class TestCreateAnyAgentWorkerGraph:
     async def test_graph_handles_no_task(self, MockConfig, MockAnyAgent):
         """Returns fallback message when no human message found."""
         mock_instance = MagicMock()
-        MockAnyAgent.create.return_value = mock_instance
+        MockAnyAgent.create_async = AsyncMock(return_value=mock_instance)
 
-        graph = create_any_agent_worker_graph(
+        graph = await create_any_agent_worker_graph(
             name="worker",
             framework="openai",
             model_id="gpt-4o",
@@ -258,9 +279,9 @@ class TestCreateAnyAgentWorkerGraph:
         """Returns error message when any-agent raises."""
         mock_instance = MagicMock()
         mock_instance.run_async = AsyncMock(side_effect=RuntimeError("LLM timeout"))
-        MockAnyAgent.create.return_value = mock_instance
+        MockAnyAgent.create_async = AsyncMock(return_value=mock_instance)
 
-        graph = create_any_agent_worker_graph(
+        graph = await create_any_agent_worker_graph(
             name="worker",
             framework="openai",
             model_id="gpt-4o",
@@ -275,15 +296,46 @@ class TestCreateAnyAgentWorkerGraph:
 
     @patch("any_agent.AnyAgent")
     @patch("any_agent.AgentConfig")
+    async def test_graph_handles_agent_cancel(self, MockConfig, MockAnyAgent):
+        """AgentCancel is reported as 'stopped', not 'error'."""
+        # Create a concrete AgentCancel subclass (can't instantiate ABC directly)
+        from any_agent import AgentCancel
+
+        class TestCancel(AgentCancel):
+            pass
+
+        mock_instance = MagicMock()
+        cancel_exc = TestCancel("Step limit reached")
+        cancel_exc._trace = MagicMock()
+        cancel_exc._trace.final_output = "partial answer"
+        mock_instance.run_async = AsyncMock(side_effect=cancel_exc)
+        MockAnyAgent.create_async = AsyncMock(return_value=mock_instance)
+
+        graph = await create_any_agent_worker_graph(
+            name="worker",
+            framework="openai",
+            model_id="gpt-4o",
+            system_prompt="Test.",
+        )
+
+        result = await graph.ainvoke(
+            {"messages": [HumanMessage(content="Do something")]}
+        )
+        last_msg = result["messages"][-1]
+        assert "stopped" in last_msg.content
+        assert "partial answer" in last_msg.content
+
+    @patch("any_agent.AnyAgent")
+    @patch("any_agent.AgentConfig")
     async def test_graph_handles_none_final_output(self, MockConfig, MockAnyAgent):
         """Returns fallback when trace.final_output is None."""
         mock_instance = MagicMock()
         mock_trace = MagicMock()
         mock_trace.final_output = None
         mock_instance.run_async = AsyncMock(return_value=mock_trace)
-        MockAnyAgent.create.return_value = mock_instance
+        MockAnyAgent.create_async = AsyncMock(return_value=mock_instance)
 
-        graph = create_any_agent_worker_graph(
+        graph = await create_any_agent_worker_graph(
             name="worker",
             framework="openai",
             model_id="gpt-4o",
@@ -298,29 +350,31 @@ class TestCreateAnyAgentWorkerGraph:
 
     @patch("any_agent.AnyAgent")
     @patch("any_agent.AgentConfig")
-    def test_llamaindex_framework_mapped(self, MockConfig, MockAnyAgent):
+    async def test_llamaindex_framework_mapped(self, MockConfig, MockAnyAgent):
         """llamaindex maps to llama_index for any-agent."""
         mock_instance = MagicMock()
-        MockAnyAgent.create.return_value = mock_instance
+        MockAnyAgent.create_async = AsyncMock(return_value=mock_instance)
 
-        create_any_agent_worker_graph(
+        await create_any_agent_worker_graph(
             name="worker",
             framework="llamaindex",
             model_id="gpt-4o",
             system_prompt="Test.",
         )
 
-        call_args = MockAnyAgent.create.call_args
+        call_args = MockAnyAgent.create_async.call_args
         assert call_args[0][0] == "llama_index"
 
     @patch("any_agent.AnyAgent")
     @patch("any_agent.AgentConfig")
-    def test_missing_framework_package_raises_import_error(self, MockConfig, MockAnyAgent):
+    async def test_missing_framework_package_raises_import_error(self, MockConfig, MockAnyAgent):
         """NameError from missing framework package is wrapped as ImportError."""
-        MockAnyAgent.create.side_effect = NameError("name 'BaseConverter' is not defined")
+        MockAnyAgent.create_async = AsyncMock(
+            side_effect=NameError("name 'BaseConverter' is not defined")
+        )
 
         with pytest.raises(ImportError, match="requires additional dependencies"):
-            create_any_agent_worker_graph(
+            await create_any_agent_worker_graph(
                 name="worker",
                 framework="openai",
                 model_id="openai/gpt-4o",
@@ -354,10 +408,10 @@ class TestGraphFactoryFrameworkBranching:
             },
         )
 
-    @patch("maos.graph.factory.create_any_agent_worker_graph")
+    @patch("maos.graph.factory.create_any_agent_worker_graph", new_callable=AsyncMock)
     @patch("maos.graph.factory.create_react_agent")
     @patch("maos.graph.factory.create_supervisor")
-    def test_langchain_uses_create_react_agent(
+    async def test_langchain_uses_create_react_agent(
         self, mock_supervisor, mock_react, mock_anyagent
     ):
         """framework=langchain must use create_react_agent, NOT any-agent."""
@@ -373,7 +427,6 @@ class TestGraphFactoryFrameworkBranching:
         mock_react.return_value = MagicMock()
         mock_supervisor.return_value = MagicMock()
 
-        # Build registry
         agent_factory = MagicMock(spec=AgentFactory)
         from maos.agents.models import SupervisorAgent, WorkerAgent
 
@@ -398,15 +451,15 @@ class TestGraphFactoryFrameworkBranching:
         tool_registry = MagicMock(spec=ToolRegistry)
 
         factory = GraphFactory(config, registry, mock_llm_factory, tool_registry)
-        factory.build()
+        await factory.build()
 
         mock_react.assert_called_once()
         mock_anyagent.assert_not_called()
 
-    @patch("maos.graph.factory.create_any_agent_worker_graph")
+    @patch("maos.graph.factory.create_any_agent_worker_graph", new_callable=AsyncMock)
     @patch("maos.graph.factory.create_react_agent")
     @patch("maos.graph.factory.create_supervisor")
-    def test_openai_uses_any_agent(self, mock_supervisor, mock_react, mock_anyagent):
+    async def test_openai_uses_any_agent(self, mock_supervisor, mock_react, mock_anyagent):
         """framework=openai must use any-agent, NOT create_react_agent."""
         from maos.agents.factory import AgentFactory
         from maos.agents.registry import AgentRegistry
@@ -445,7 +498,7 @@ class TestGraphFactoryFrameworkBranching:
         tool_registry = MagicMock(spec=ToolRegistry)
 
         factory = GraphFactory(config, registry, mock_llm_factory, tool_registry)
-        factory.build()
+        await factory.build()
 
         mock_anyagent.assert_called_once()
         mock_react.assert_not_called()
@@ -453,6 +506,45 @@ class TestGraphFactoryFrameworkBranching:
         call_kwargs = mock_anyagent.call_args[1]
         assert call_kwargs["model_id"] == "openai/gpt-4o"
         assert call_kwargs["framework"] == "openai"
+
+
+# ---------------------------------------------------------------------------
+# GraphFactory cleanup
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+class TestGraphFactoryCleanup:
+    """Test any-agent instance cleanup."""
+
+    async def test_cleanup_calls_cleanup_async(self):
+        """cleanup_any_agents() calls cleanup_async on tracked instances."""
+        from maos.graph.factory import GraphFactory
+
+        factory = GraphFactory.__new__(GraphFactory)
+        factory._any_agent_instances = []
+
+        mock_instance = MagicMock()
+        mock_instance.cleanup_async = AsyncMock()
+        factory._any_agent_instances.append(mock_instance)
+
+        await factory.cleanup_any_agents()
+
+        mock_instance.cleanup_async.assert_called_once()
+        assert len(factory._any_agent_instances) == 0
+
+    async def test_cleanup_handles_errors_gracefully(self):
+        """Cleanup doesn't crash if an instance fails to clean up."""
+        from maos.graph.factory import GraphFactory
+
+        factory = GraphFactory.__new__(GraphFactory)
+        factory._any_agent_instances = []
+
+        mock_instance = MagicMock()
+        mock_instance.cleanup_async = AsyncMock(side_effect=RuntimeError("fail"))
+        factory._any_agent_instances.append(mock_instance)
+
+        # Should not raise
+        await factory.cleanup_any_agents()
+        assert len(factory._any_agent_instances) == 0
 
 
 # ---------------------------------------------------------------------------

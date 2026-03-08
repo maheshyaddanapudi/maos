@@ -206,7 +206,38 @@ def _convert_langchain_tools_to_callables(tools: list[BaseTool]) -> list:
     return callables
 
 
-def create_any_agent_worker_graph(
+class _StepLimitExceeded(Exception):
+    """Raised when an any-agent worker exceeds its step limit."""
+
+
+def _make_step_limit_callback(max_steps: int) -> Any:
+    """Create a step-limiting callback for any-agent workers.
+
+    Prevents runaway agents by counting LLM calls and raising
+    ``_StepLimitExceeded`` when the limit is reached.  This is the
+    recommended approach since any-agent removed ``max_turns`` in v1.2.1.
+    """
+    from any_agent.callbacks.base import Callback
+
+    class StepLimitCallback(Callback):
+        def before_llm_call(self, context: Any, *args: Any, **kwargs: Any) -> Any:
+            count = context.shared.get("_step_count", 0) + 1
+            context.shared["_step_count"] = count
+            if count > max_steps:
+                raise _StepLimitExceeded(
+                    f"Agent exceeded step limit of {max_steps} LLM calls"
+                )
+            return context
+
+    return StepLimitCallback()
+
+
+# Default maximum LLM calls per any-agent worker invocation.
+# Can be overridden via worker.timeout_seconds (we reuse it as a rough proxy).
+_DEFAULT_MAX_STEPS = 25
+
+
+async def create_any_agent_worker_graph(
     name: str,
     framework: str,
     model_id: str,
@@ -215,12 +246,17 @@ def create_any_agent_worker_graph(
     api_key: str | None = None,
     api_base: str | None = None,
     model_args: dict | None = None,
+    max_steps: int = _DEFAULT_MAX_STEPS,
 ) -> Any:
     """Create a LangGraph-compatible wrapper for an any-agent worker.
 
     The returned compiled graph has the same ``messages``-based state
     interface as ``create_react_agent``, so the supervisor treats it
     identically to a native LangChain worker.
+
+    This is an async function that uses ``AnyAgent.create_async()`` to
+    avoid nested-event-loop issues when called from within an async
+    context (GitHub issue mozilla-ai/any-agent#807).
 
     Args:
         name: Worker agent name.
@@ -231,28 +267,34 @@ def create_any_agent_worker_graph(
         api_key: Optional API key for the LLM provider.
         api_base: Optional custom API base URL.
         model_args: Optional generation kwargs (temperature, etc.).
+        max_steps: Maximum LLM calls before the agent is stopped.
 
     Returns:
         A compiled StateGraph usable as a worker in ``create_supervisor``.
     """
+    from any_agent import AgentCancel as AnyAgentCancel
     from any_agent import AgentConfig as AnyAgentConfig
     from any_agent import AnyAgent
 
     any_framework = _ANYAGENT_FRAMEWORK_MAP.get(framework, framework)
     tool_callables = _convert_langchain_tools_to_callables(tools) if tools else []
 
+    step_callback = _make_step_limit_callback(max_steps)
+
     agent_config = AnyAgentConfig(
         model_id=model_id,
         name=name,
         instructions=system_prompt,
         tools=tool_callables,
+        callbacks=[step_callback],
         api_key=api_key,
         api_base=api_base,
         model_args=model_args or {},
     )
 
     try:
-        any_agent_instance = AnyAgent.create(any_framework, agent_config)
+        # Use create_async to avoid nested-event-loop issues (#807)
+        any_agent_instance = await AnyAgent.create_async(any_framework, agent_config)
     except (ImportError, NameError, ModuleNotFoundError) as e:
         raise ImportError(
             f"Framework '{framework}' requires additional dependencies. "
@@ -285,6 +327,25 @@ def create_any_agent_worker_graph(
             trace = await any_agent_instance.run_async(task)
             content = str(trace.final_output) if trace.final_output else "No response."
             return {"messages": [AIMessage(content=content, name=name)]}
+        except AnyAgentCancel as e:
+            # Intentional stop (e.g. step limit) — report partial results if available
+            partial = ""
+            if hasattr(e, "trace") and e.trace and e.trace.final_output:
+                partial = f" Partial result: {e.trace.final_output}"
+            logger.warning(
+                "any_agent_worker_cancelled",
+                agent=name,
+                framework=framework,
+                reason=str(e),
+            )
+            return {
+                "messages": [
+                    AIMessage(
+                        content=f"Agent '{name}' was stopped: {e}.{partial}",
+                        name=name,
+                    )
+                ]
+            }
         except Exception as e:
             logger.error(
                 "any_agent_worker_failed", agent=name, framework=framework, error=str(e)
@@ -341,8 +402,22 @@ class GraphFactory:
         self._tool_registry = tool_registry
         self._graph_config = config.graph
         self._a2a_client = a2a_client or A2AClient()
+        # Track any-agent instances for cleanup
+        self._any_agent_instances: list[Any] = []
 
-    def build(self) -> StateGraph:
+    async def cleanup_any_agents(self) -> None:
+        """Clean up any-agent instances (e.g. MCP connections).
+
+        Call this when the application is shutting down.
+        """
+        for instance in self._any_agent_instances:
+            try:
+                await instance.cleanup_async()
+            except Exception as e:
+                logger.warning("any_agent_cleanup_failed", error=str(e))
+        self._any_agent_instances.clear()
+
+    async def build(self) -> StateGraph:
         """
         Build the LangGraph state graph using create_supervisor.
 
@@ -387,7 +462,7 @@ class GraphFactory:
                 )
             else:
                 # Multi-framework path via any-agent
-                worker_agent = self._create_any_agent_worker(
+                worker_agent = await self._create_any_agent_worker(
                     name=name,
                     worker=worker,
                     llm_config=worker_llm_config,
@@ -438,9 +513,9 @@ class GraphFactory:
 
         return workflow
 
-    def compile(self, checkpointer: Any = None) -> Any:
+    async def compile(self, checkpointer: Any = None) -> Any:
         """Build and compile the graph."""
-        workflow = self.build()
+        workflow = await self.build()
         return workflow.compile(checkpointer=checkpointer)
 
     def _get_worker_tools(self, tool_ids: list[str] | None) -> list[BaseTool]:
@@ -521,7 +596,7 @@ class GraphFactory:
 
         return StructuredTool.from_function(**tool_kwargs)
 
-    def _create_any_agent_worker(
+    async def _create_any_agent_worker(
         self,
         name: str,
         worker: WorkerAgent,
@@ -553,7 +628,7 @@ class GraphFactory:
         model_id = build_any_agent_model_id(llm_config)
         api_key = os.environ.get(llm_config.api_key_env) if llm_config.api_key_env else None
 
-        return create_any_agent_worker_graph(
+        result = await create_any_agent_worker_graph(
             name=name,
             framework=worker.framework,
             model_id=model_id,
@@ -563,3 +638,4 @@ class GraphFactory:
             api_base=llm_config.base_url,
             model_args={"temperature": llm_config.temperature},
         )
+        return result

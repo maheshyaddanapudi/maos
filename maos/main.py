@@ -299,7 +299,7 @@ async def initialize_system(
     if checkpointer is None:
         checkpointer = MemorySaver()
 
-    compiled_graph = graph_factory.compile(checkpointer=checkpointer)
+    compiled_graph = await graph_factory.compile(checkpointer=checkpointer)
     logger.info("graph_compiled")
 
     # Return context
@@ -311,6 +311,7 @@ async def initialize_system(
         "skill_registry": skill_registry,
         "skillset_registry": skillset_registry,
         "agent_registry": agent_registry,
+        "graph_factory": graph_factory,
         "graph": compiled_graph,
         "checkpointer": checkpointer,
         "external_servers": external_servers,
@@ -335,6 +336,11 @@ async def shutdown_system(context: dict) -> None:
             await server.stop()
         except Exception as e:
             logger.warning("failed_to_stop_external_agent", error=str(e))
+
+    # Clean up any-agent instances (MCP connections, etc.)
+    graph_factory = context.get("graph_factory")
+    if graph_factory and hasattr(graph_factory, "cleanup_any_agents"):
+        await graph_factory.cleanup_any_agents()
 
     # Disconnect MCP servers
     mcp_registry = context.get("mcp_registry")

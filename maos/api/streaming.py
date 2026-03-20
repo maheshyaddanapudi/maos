@@ -84,10 +84,11 @@ async def stream_graph_events(
                     messages = chunk.get("messages", [])
                     if messages:
                         for msg in messages:
-                            if isinstance(msg, dict) and msg.get("content"):
+                            content = _extract_message_content(msg)
+                            if content:
                                 yield format_sse_event(
                                     StreamEventType.CHUNK.value,
-                                    {"content": msg.get("content", "")}
+                                    {"content": content}
                                 )
 
                     # Check for supervisor decision
@@ -404,6 +405,22 @@ async def stream_openai_response_with_interrupt(
         yield formatter.format_chunk(content=f"Error: {str(e)}")
         yield formatter.format_chunk(finish_reason="stop")
         yield formatter.format_done()
+
+
+def _extract_message_content(msg: Any) -> str | None:
+    """Extract content from a message, handling both dict and LangChain message objects."""
+    # Handle LangChain message objects (AIMessage, HumanMessage, etc.)
+    if hasattr(msg, "type") and hasattr(msg, "content"):
+        content = msg.content
+        if content:
+            return str(content)
+        return None
+    # Handle dict messages
+    if isinstance(msg, dict):
+        content = msg.get("content", "")
+        if content:
+            return str(content)
+    return None
 
 
 def _extract_stream_content(event: dict[str, Any]) -> str | None:

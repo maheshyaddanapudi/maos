@@ -6,12 +6,16 @@ Each agent proposes, others challenge, proposers defend.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
+import structlog
 from langchain_core.messages import AIMessage, HumanMessage
 
 from maos.house_md.graphs.states import DiagnosticState
 from maos.house_md.memory.whiteboard import Whiteboard
+
+logger = structlog.get_logger()
 
 
 async def run_critique_round(
@@ -79,6 +83,36 @@ async def run_critique_round(
                 )
             )
 
+            # Extract hypotheses from agent response and add to whiteboard
+            extracted = extract_hypotheses(content, agent_name)
+            for hyp in extracted:
+                existing = _find_existing_hypothesis(whiteboard, hyp["hypothesis"])
+                if existing:
+                    # Existing hypothesis — add supporting evidence
+                    existing.add_supporting_evidence(
+                        f"{agent_name} supports: {hyp.get('evidence', 'agrees')}"
+                    )
+                    logger.debug(
+                        "hypothesis_supported",
+                        hypothesis=existing.hypothesis,
+                        supporter=agent_name,
+                    )
+                else:
+                    # New hypothesis
+                    entry = whiteboard.add_hypothesis(
+                        hypothesis=hyp["hypothesis"],
+                        proposer=agent_name,
+                        confidence=hyp.get("confidence", 0.5),
+                    )
+                    if hyp.get("evidence"):
+                        entry.add_supporting_evidence(hyp["evidence"])
+                    new_hypotheses.append(entry.to_dict())
+                    logger.debug(
+                        "hypothesis_added",
+                        hypothesis=hyp["hypothesis"],
+                        proposer=agent_name,
+                    )
+
     whiteboard.advance_phase("post_critique")
 
     return {
@@ -90,8 +124,108 @@ async def run_critique_round(
     }
 
 
+def extract_hypotheses(
+    content: str, agent_name: str
+) -> list[dict[str, Any]]:
+    """Extract hypotheses from an agent's response text.
+
+    Looks for structured markers first (``HYPOTHESIS:`` lines), then
+    falls back to heuristic extraction from sentences that propose a
+    root cause.
+
+    Returns:
+        List of dicts with keys: hypothesis, confidence (optional),
+        evidence (optional).
+    """
+    hypotheses: list[dict[str, Any]] = []
+
+    # Strategy 1: Structured markers  (HYPOTHESIS: ... or **Hypothesis**: ...)
+    structured_pattern = re.compile(
+        r"(?:HYPOTHESIS|Hypothesis|hypothesis)\s*[:]\s*(.+?)(?:\n|$)",
+        re.IGNORECASE,
+    )
+    for match in structured_pattern.finditer(content):
+        hyp_text = match.group(1).strip().rstrip(".")
+        if hyp_text and len(hyp_text) > 5:
+            conf = _extract_confidence_from_context(content, hyp_text)
+            hypotheses.append({
+                "hypothesis": hyp_text,
+                "confidence": conf,
+                "evidence": f"Proposed by {agent_name}",
+            })
+
+    if hypotheses:
+        return hypotheses
+
+    # Strategy 2: Heuristic — sentences with causal/diagnostic language
+    causal_patterns = [
+        r"(?:root cause|cause)[^.]*?(?:is|could be|might be|appears to be)\s+(.+?)(?:\.|$)",
+        r"(?:this is likely|most likely|probably)\s+(?:caused by|due to|a)\s+(.+?)(?:\.|$)",
+        r"(?:I (?:believe|think|suspect)|diagnosis)\s*(?::|is)?\s*(.+?)(?:\.|$)",
+        r"(?:the (?:issue|problem|bug))\s+(?:is|stems from|comes from)\s+(.+?)(?:\.|$)",
+    ]
+    for pattern in causal_patterns:
+        for match in re.finditer(pattern, content, re.IGNORECASE):
+            hyp_text = match.group(1).strip().rstrip(".")
+            if hyp_text and 5 < len(hyp_text) < 200:
+                # Avoid duplicates within this extraction
+                if not any(h["hypothesis"].lower() == hyp_text.lower() for h in hypotheses):
+                    hypotheses.append({
+                        "hypothesis": hyp_text,
+                        "confidence": 0.5,
+                        "evidence": f"Inferred from {agent_name}'s analysis",
+                    })
+
+    return hypotheses
+
+
+def _extract_confidence_from_context(content: str, hypothesis: str) -> float:
+    """Try to extract a confidence value near the hypothesis text."""
+    # Look for percentage patterns near the hypothesis
+    hyp_idx = content.lower().find(hypothesis.lower())
+    if hyp_idx == -1:
+        return 0.5
+
+    # Search in a window around the hypothesis
+    window = content[max(0, hyp_idx - 50):hyp_idx + len(hypothesis) + 100]
+    conf_match = re.search(r"(\d{1,3})\s*%", window)
+    if conf_match:
+        return min(float(conf_match.group(1)) / 100.0, 1.0)
+
+    # High/low confidence keywords
+    low_keywords = ["unlikely", "low confidence", "doubtful", "weak"]
+    high_keywords = ["confident", "high confidence", "very likely", "strong"]
+    window_lower = window.lower()
+    for kw in high_keywords:
+        if kw in window_lower:
+            return 0.7
+    for kw in low_keywords:
+        if kw in window_lower:
+            return 0.3
+    return 0.5
+
+
+def _find_existing_hypothesis(whiteboard: Whiteboard, hypothesis_text: str):
+    """Find an existing whiteboard entry that matches a hypothesis.
+
+    Uses case-insensitive substring matching to find duplicates.
+    """
+    hyp_lower = hypothesis_text.lower()
+    for entry in whiteboard.get_active_hypotheses():
+        if (
+            hyp_lower in entry.hypothesis.lower()
+            or entry.hypothesis.lower() in hyp_lower
+        ):
+            return entry
+    return None
+
+
 def _build_critique_prompt(whiteboard: Whiteboard, agent_name: str) -> str:
-    """Build a critique prompt for a specific agent."""
+    """Build a critique prompt for a specific agent.
+
+    Instructs agents to use structured ``HYPOTHESIS:`` markers so
+    that :func:`extract_hypotheses` can reliably parse them.
+    """
     summary = whiteboard.summary()
     return (
         f"You are {agent_name} on the diagnostic team. "
@@ -100,6 +234,8 @@ def _build_critique_prompt(whiteboard: Whiteboard, agent_name: str) -> str:
         f"Based on your role and expertise:\n"
         f"1. Which hypotheses do you support or challenge? Why?\n"
         f"2. What evidence or tests would you recommend?\n"
-        f"3. Are we missing anything?\n"
+        f"3. Are we missing anything?\n\n"
+        f"IMPORTANT: When proposing a new hypothesis, use this format:\n"
+        f"HYPOTHESIS: <your hypothesis here>\n\n"
         f"Be specific and reference the hypotheses by name."
     )

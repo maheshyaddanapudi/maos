@@ -149,14 +149,7 @@ async def chat(
                     )
 
         # Build response
-        response_messages = []
-        for msg in result.get("messages", []):
-            if isinstance(msg, dict):
-                response_messages.append(Message(
-                    role=msg.get("role", "assistant"),
-                    content=msg.get("content", ""),
-                    name=msg.get("name")
-                ))
+        response_messages = _build_response_messages(result.get("messages", []))
 
         # Get final response
         final_response = ""
@@ -240,14 +233,7 @@ async def resume_chat(
                     )
 
         # Build response
-        response_messages = []
-        for msg in result.get("messages", []):
-            if isinstance(msg, dict):
-                response_messages.append(Message(
-                    role=msg.get("role", "assistant"),
-                    content=msg.get("content", ""),
-                    name=msg.get("name")
-                ))
+        response_messages = _build_response_messages(result.get("messages", []))
 
         final_response = ""
         if response_messages:
@@ -376,6 +362,33 @@ async def delete_thread(
             status_code=500,
             detail=f"Error deleting thread: {str(e)}"
         )
+
+
+def _build_response_messages(messages: list) -> list[Message]:
+    """Build response Message list from graph result messages.
+
+    Handles both dict messages (supervisor mode) and LangChain message
+    objects like AIMessage (house_md mode).
+    """
+    response_messages = []
+    for msg in messages:
+        if isinstance(msg, dict):
+            response_messages.append(Message(
+                role=msg.get("role", "assistant"),
+                content=msg.get("content", ""),
+                name=msg.get("name")
+            ))
+        elif hasattr(msg, "content") and hasattr(msg, "type"):
+            # LangChain message objects (AIMessage, HumanMessage, etc.)
+            # Map LangChain type names to API MessageRole values
+            type_to_role = {"ai": "assistant", "human": "user", "system": "system"}
+            role = type_to_role.get(msg.type, "assistant")
+            response_messages.append(Message(
+                role=role,
+                content=str(msg.content),
+                name=getattr(msg, "name", None)
+            ))
+    return response_messages
 
 
 def _extract_worker_results(result: dict[str, Any]) -> list[WorkerResultInfo]:

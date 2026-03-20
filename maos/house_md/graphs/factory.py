@@ -508,11 +508,14 @@ class HouseMDGraphFactory:
             )
             tools = graph_factory._get_worker_tools(worker.tool_ids)
 
+            # Note: system_prompt is NOT passed here because
+            # PersonalityWrapper.enhance_state() injects personality-enhanced
+            # prompts at invocation time. Passing prompt= here would create
+            # duplicate system messages.
             agent = create_react_agent(
                 model=worker_model,
                 tools=tools if tools else [],
                 name=name,
-                prompt=worker.system_prompt,
             )
             runnables[name] = agent
             logger.debug("created_house_md_agent", name=name)
@@ -531,7 +534,6 @@ class HouseMDGraphFactory:
                     model=sup_model,
                     tools=[],
                     name=supervisor.name,
-                    prompt=supervisor.system_prompt,
                 )
                 runnables[supervisor.name] = house_agent
 
@@ -567,6 +569,11 @@ class HouseMDGraphFactory:
         return wrapped
 
 
+# Maximum number of recent messages to include in agent invocations.
+# Keeps token usage bounded as conversation history grows across iterations.
+_MAX_CONTEXT_MESSAGES = 10
+
+
 async def _invoke_agent(
     agent: PersonalityWrapper,
     state: DiagnosticState,
@@ -575,8 +582,10 @@ async def _invoke_agent(
 ) -> dict[str, Any]:
     """Invoke a personality-wrapped agent with phase context.
 
-    Builds a minimal message list with whiteboard context and the
-    phase-specific prompt, then invokes the wrapped agent.
+    Builds a trimmed message list with whiteboard context and the
+    phase-specific prompt, then invokes the wrapped agent.  Only the
+    original user message plus the most recent ``_MAX_CONTEXT_MESSAGES``
+    messages are forwarded to avoid unbounded token growth.
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
 
@@ -588,11 +597,24 @@ async def _invoke_agent(
         whiteboard=whiteboard,
     )
 
-    # Build invocation state: original messages + phase prompt
+    # Build trimmed message list: keep the original user message (first)
+    # plus the most recent messages to bound token usage.
+    all_messages = list(state["messages"])
+    if len(all_messages) > _MAX_CONTEXT_MESSAGES + 1:
+        # Always include the first message (original user request)
+        trimmed = [all_messages[0]] + all_messages[-_MAX_CONTEXT_MESSAGES:]
+    else:
+        trimmed = all_messages
+
+    # Include whiteboard summary so agents have full diagnostic context
+    # even when message history is trimmed.
+    wb_summary = whiteboard.summary()
+    context_msg = HumanMessage(
+        content=f"[Whiteboard Context]\n{wb_summary}\n\n[Phase Task]\n{phase_prompt}"
+    )
+
     invoke_state = {
-        "messages": list(state["messages"]) + [
-            HumanMessage(content=phase_prompt),
-        ],
+        "messages": trimmed + [context_msg],
     }
 
     try:

@@ -162,7 +162,14 @@ class HouseMDGraphFactory:
         async def provocation_node(
             state: DiagnosticState,
         ) -> dict[str, Any]:
-            """House challenges, synthesizes, and provokes."""
+            """House challenges, synthesizes, and provokes.
+
+            NOTE: Only provocation increments the iteration counter.
+            This is by design — provocation is the "reconvene" point in
+            each diagnostic cycle (differential → provocation → testing →
+            provocation → ...).  Other nodes use the current iteration
+            value without advancing it.
+            """
             whiteboard = Whiteboard.from_dict(state["whiteboard"])
             iteration = state.get("iteration", 0) + 1
             whiteboard.advance_phase(
@@ -556,13 +563,24 @@ class HouseMDGraphFactory:
             tool_registry=self._tool_registry,
         )
 
-        # Personality slots for workers (house is the supervisor)
-        available_personality_slots = [
+        # Personality slots for workers (house is the supervisor).
+        # First pass: identify which config workers already match a
+        # personality key so we can reserve those slots before assigning
+        # unknown workers to remaining ones.
+        all_worker_slots = [
             k for k in PERSONALITY_CONFIGS if k != "house"
         ]
-        slot_idx = 0
+        workers = list(self._agent_registry.get_workers())
+        pre_claimed: set[str] = {
+            name.lower()
+            for name, _ in workers
+            if name.lower() in PERSONALITY_CONFIGS and name.lower() != "house"
+        }
 
-        for name, worker in self._agent_registry.get_workers():
+        # Track slots claimed during assignment (includes pre-claimed).
+        claimed_slots: set[str] = set(pre_claimed)
+
+        for name, worker in workers:
             worker_llm_config = self._config.llms.get(
                 worker.llm_name or "default"
             )
@@ -579,19 +597,23 @@ class HouseMDGraphFactory:
             )
             tools = graph_factory._get_worker_tools(worker.tool_ids)
 
-            # Map config name to personality key.  If the config name
-            # already matches a personality key, use it directly.
-            # Otherwise assign to the next available personality slot.
+            # Map config name to personality key.  Known personality
+            # names are used directly; unknown names get the next
+            # unclaimed slot.
             personality_key = name.lower()
-            if personality_key not in PERSONALITY_CONFIGS:
-                if slot_idx < len(available_personality_slots):
-                    personality_key = available_personality_slots[slot_idx]
-                    slot_idx += 1
-                else:
+            if personality_key in PERSONALITY_CONFIGS and personality_key != "house":
+                pass  # Already pre-claimed
+            else:
+                # Find the next unclaimed slot
+                assigned = False
+                for slot in all_worker_slots:
+                    if slot not in claimed_slots:
+                        personality_key = slot
+                        claimed_slots.add(slot)
+                        assigned = True
+                        break
+                if not assigned:
                     personality_key = name  # fallback for extra workers
-            elif personality_key in available_personality_slots:
-                # Remove from available slots so it won't be double-assigned
-                available_personality_slots.remove(personality_key)
 
             # Note: system_prompt is NOT passed here because
             # PersonalityWrapper.enhance_state() injects personality-enhanced
@@ -648,12 +670,24 @@ class HouseMDGraphFactory:
                     ],
                 )
             else:
-                # No personality defined — wrap with minimal config
+                # No personality defined — use a generic config.
+                logger.warning(
+                    "no_personality_for_agent",
+                    agent=name,
+                    fallback="generic",
+                )
+                from maos.house_md.personalities.base import (
+                    PersonalityConfig,
+                )
+
+                generic = PersonalityConfig(
+                    name=name,
+                    role_description="Team member",
+                    system_prompt_additions="Contribute your analysis.",
+                )
                 wrapped[name] = PersonalityWrapper(
                     base_agent=runnable,
-                    personality=PERSONALITY_CONFIGS.get(
-                        "chase", list(PERSONALITY_CONFIGS.values())[0]
-                    ),
+                    personality=generic,
                 )
         return wrapped
 

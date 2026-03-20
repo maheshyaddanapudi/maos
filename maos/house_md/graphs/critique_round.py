@@ -42,6 +42,8 @@ async def run_critique_round(
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
     active_team = state.get("active_team", [])
+    if not active_team:
+        logger.warning("critique_round_empty_team", phase="differential")
     new_hypotheses: list[dict[str, Any]] = []
     agent_beliefs: dict[str, Any] = dict(state.get("agent_beliefs", {}))
     new_messages: list[Any] = []

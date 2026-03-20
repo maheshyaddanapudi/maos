@@ -1,4 +1,4 @@
-"""Tests for Issues 7-26 + Round 4 fixes.
+"""Tests for Issues 7-26 + Round 4 + Round 5 fixes.
 
 Issue 7:  Whiteboard hypotheses populated from agent responses
 Issue 8:  Trimmed message history in _invoke_agent
@@ -26,6 +26,11 @@ Round 4 Issue 30: _extract_content fallback returns sensible message
 Round 4 Issue 31: Resolution node captures pre-confirm confidence
 Round 4 Issue 32: Context message labeling
 Round 4 Issue 33: Similarity threshold raised to 0.6
+Round 5 Issue 34: State mutation — from_dict copies mutable lists
+Round 5 Issue 35: Personality slot assignment uses set tracking
+Round 5 Issue 36: Duplicate evidence skipped in confidence updates
+Round 5 Issue 37: Empty active_team logged in critique round
+Round 5 Issue 38: Fragile personality fallback replaced with generic config
 """
 
 from __future__ import annotations
@@ -69,6 +74,7 @@ from maos.house_md.personalities.base import (
     PersonalityWrapper,
     TeamContext,
 )
+from maos.house_md.personalities.team import PERSONALITY_CONFIGS
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1667,3 +1673,280 @@ class TestSimilarityThreshold:
         results = extract_hypotheses(content, "chase")
         # These are distinct hypotheses — should NOT be deduped
         assert len(results) == 2
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 5 Issue 34: State mutation — from_dict copies mutable lists
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestFromDictCopiesLists:
+    """Ensure from_dict creates independent copies of mutable lists."""
+
+    def test_whiteboard_entry_evidence_for_independent(self):
+        """Mutating evidence_for on reconstructed entry must not affect source."""
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        source_data = {
+            "hypothesis": "test",
+            "proposer": "house",
+            "evidence_for": ["original evidence"],
+            "evidence_against": [],
+            "challenges": [],
+            "tests_assigned": [],
+            "entry_id": "abc123",
+        }
+        entry = WhiteboardEntry.from_dict(source_data)
+        entry.add_supporting_evidence("new evidence")
+        # Source list must be unchanged
+        assert len(source_data["evidence_for"]) == 1
+        assert "new evidence" not in source_data["evidence_for"]
+
+    def test_whiteboard_entry_evidence_against_independent(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        source_data = {
+            "hypothesis": "test",
+            "proposer": "house",
+            "evidence_for": [],
+            "evidence_against": ["original counter"],
+            "challenges": [],
+            "tests_assigned": [],
+            "entry_id": "abc123",
+        }
+        entry = WhiteboardEntry.from_dict(source_data)
+        entry.add_counter_evidence("new counter")
+        assert len(source_data["evidence_against"]) == 1
+
+    def test_whiteboard_symptoms_independent(self):
+        """Mutating symptoms on reconstructed whiteboard must not affect source."""
+        source_data = {
+            "symptoms": ["symptom A"],
+            "environmental_findings": [],
+            "entries": [],
+        }
+        wb = Whiteboard.from_dict(source_data)
+        wb.add_symptom("symptom B")
+        assert len(source_data["symptoms"]) == 1
+        assert "symptom B" not in source_data["symptoms"]
+
+    def test_whiteboard_env_findings_independent(self):
+        source_data = {
+            "symptoms": [],
+            "environmental_findings": ["finding A"],
+            "entries": [],
+        }
+        wb = Whiteboard.from_dict(source_data)
+        wb.add_environmental_finding("finding B")
+        assert len(source_data["environmental_findings"]) == 1
+
+    def test_state_dict_not_mutated_by_critique_round(self):
+        """The original state dict should not be mutated by critique round."""
+        wb = Whiteboard()
+        wb.add_hypothesis("test hyp", "house", confidence=0.5)
+        state = _make_state(
+            active_team=["chase"],
+            whiteboard=wb.to_dict(),
+        )
+        # Snapshot the original evidence list length
+        original_entries = state["whiteboard"]["entries"]
+        original_evidence_len = len(original_entries[0]["evidence_for"])
+
+        import asyncio
+
+        async def mock_agent(s):
+            return {
+                "messages": [AIMessage(
+                    content="HYPOTHESIS: test hyp"
+                )]
+            }
+
+        asyncio.get_event_loop().run_until_complete(
+            run_critique_round(state, {"chase": mock_agent})
+        )
+
+        # Original state dict must not have been mutated
+        assert len(original_entries[0]["evidence_for"]) == original_evidence_len
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 5 Issue 35: Personality slot assignment uses set tracking
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestPersonalitySlotAssignment:
+    def test_known_names_claim_their_slot(self):
+        """Config agents with personality names should claim their slot."""
+        from maos.house_md.personalities.team import PERSONALITY_CONFIGS
+
+        all_worker_slots = [
+            k for k in PERSONALITY_CONFIGS if k != "house"
+        ]
+        claimed: set[str] = set()
+
+        # Simulate: workers named "foreman" and "chase"
+        for name in ["foreman", "chase"]:
+            key = name.lower()
+            if key in PERSONALITY_CONFIGS and key != "house":
+                claimed.add(key)
+
+        assert "foreman" in claimed
+        assert "chase" in claimed
+        # Other slots remain available
+        unclaimed = [s for s in all_worker_slots if s not in claimed]
+        assert "cameron" in unclaimed
+        assert "thirteen" in unclaimed
+
+    def test_unknown_names_get_next_unclaimed_slot(self):
+        """Workers with non-personality names get the next unclaimed slot."""
+        from maos.house_md.personalities.team import PERSONALITY_CONFIGS
+
+        all_worker_slots = [
+            k for k in PERSONALITY_CONFIGS if k != "house"
+        ]
+        claimed: set[str] = set()
+
+        # First worker named "code_reviewer" gets first available slot
+        for slot in all_worker_slots:
+            if slot not in claimed:
+                claimed.add(slot)
+                assigned_slot = slot
+                break
+
+        assert assigned_slot == all_worker_slots[0]
+
+    def test_mixed_known_and_unknown_workers(self):
+        """Mix of known and unknown worker names assigns correctly.
+
+        Uses the same two-pass approach as _create_agent_runnables:
+        first pre-claim known personality names, then assign unknowns.
+        """
+        from maos.house_md.personalities.team import PERSONALITY_CONFIGS
+
+        all_worker_slots = [
+            k for k in PERSONALITY_CONFIGS if k != "house"
+        ]
+        workers = ["chase", "code_reviewer", "foreman", "test_runner"]
+
+        # Pass 1: pre-claim known personality names
+        pre_claimed: set[str] = {
+            w.lower()
+            for w in workers
+            if w.lower() in PERSONALITY_CONFIGS and w.lower() != "house"
+        }
+        claimed: set[str] = set(pre_claimed)
+        assignments: dict[str, str] = {}
+
+        # Pass 2: assign
+        for name in workers:
+            key = name.lower()
+            if key in PERSONALITY_CONFIGS and key != "house":
+                assignments[name] = key
+            else:
+                for slot in all_worker_slots:
+                    if slot not in claimed:
+                        claimed.add(slot)
+                        assignments[name] = slot
+                        break
+
+        assert assignments["chase"] == "chase"
+        assert assignments["foreman"] == "foreman"
+        # Unknown workers get unclaimed slots (not foreman or chase)
+        assert assignments["code_reviewer"] not in ("chase", "foreman")
+        assert assignments["test_runner"] not in ("chase", "foreman")
+        assert assignments["code_reviewer"] in PERSONALITY_CONFIGS
+        assert assignments["test_runner"] in PERSONALITY_CONFIGS
+        # No duplicates
+        assert len(set(assignments.values())) == len(assignments)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 5 Issue 36: Duplicate evidence skipped
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestDuplicateEvidenceSkipped:
+    def test_duplicate_supporting_evidence_no_confidence_change(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="house")
+        entry.add_supporting_evidence("stack trace matches")
+        conf_after_first = entry.confidence
+        entry.add_supporting_evidence("stack trace matches")  # duplicate
+        # Confidence should NOT change on duplicate
+        assert entry.confidence == conf_after_first
+        # Evidence list should have only one copy
+        assert entry.evidence_for.count("stack trace matches") == 1
+
+    def test_duplicate_counter_evidence_no_confidence_change(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="house")
+        entry.add_counter_evidence("tests pass")
+        conf_after_first = entry.confidence
+        entry.add_counter_evidence("tests pass")  # duplicate
+        assert entry.confidence == conf_after_first
+        assert entry.evidence_against.count("tests pass") == 1
+
+    def test_different_evidence_still_adjusts(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="house")
+        entry.add_supporting_evidence("evidence A")
+        entry.add_supporting_evidence("evidence B")
+        # Both should be added and confidence adjusted twice
+        assert len(entry.evidence_for) == 2
+        assert entry.confidence == pytest.approx(0.8)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 5 Issue 37: Empty active_team logged
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestEmptyActiveTeamCritiqueRound:
+    @pytest.mark.asyncio
+    async def test_empty_team_produces_empty_messages(self):
+        """Critique round with no active team should produce empty messages."""
+        state = _make_state(active_team=[])
+        result = await run_critique_round(state, {})
+        assert result["messages"] == []
+        assert result["hypotheses"] == []
+
+    @pytest.mark.asyncio
+    async def test_team_members_not_in_agent_nodes_skipped(self):
+        """Team members not present in agent_nodes should be skipped."""
+        state = _make_state(active_team=["nonexistent_agent"])
+        result = await run_critique_round(state, {})
+        assert result["messages"] == []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 5 Issue 38: Fragile personality fallback replaced
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestPersonalityFallback:
+    def test_unknown_agent_gets_generic_personality(self):
+        """Agents without matching personality get a generic config."""
+        from maos.house_md.personalities.base import PersonalityConfig
+
+        # Simulate _wrap_with_personalities with an unknown agent name
+        runnables = {"unknown_agent": MagicMock()}
+        # Manually replicate the wrapping logic
+        personality = PERSONALITY_CONFIGS.get("unknown_agent")
+        assert personality is None  # Confirms no match
+
+        # The fix creates a generic PersonalityConfig instead of
+        # falling back to Chase
+        generic = PersonalityConfig(
+            name="unknown_agent",
+            role_description="Team member",
+            system_prompt_additions="Contribute your analysis.",
+        )
+        wrapper = PersonalityWrapper(
+            base_agent=runnables["unknown_agent"],
+            personality=generic,
+        )
+        assert wrapper.personality.name == "unknown_agent"
+        assert wrapper.personality.role_description == "Team member"

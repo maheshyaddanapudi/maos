@@ -42,10 +42,16 @@ class WhiteboardEntry:
     entry_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
 
     def add_supporting_evidence(self, evidence: str) -> None:
+        # Skip duplicate evidence to prevent artificial confidence inflation.
+        if evidence in self.evidence_for:
+            return
         self.evidence_for.append(evidence)
         self.confidence = min(1.0, self.confidence + 0.15)
 
     def add_counter_evidence(self, evidence: str) -> None:
+        # Skip duplicate evidence to prevent artificial confidence deflation.
+        if evidence in self.evidence_against:
+            return
         self.evidence_against.append(evidence)
         self.confidence = max(0.0, self.confidence - 0.15)
 
@@ -77,15 +83,17 @@ class WhiteboardEntry:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WhiteboardEntry:
+        # Copy mutable lists to avoid mutating the source state dict
+        # (violates LangGraph's "never mutate state in place" rule).
         return cls(
             hypothesis=data["hypothesis"],
             proposer=data["proposer"],
             confidence=data.get("confidence", 0.5),
             status=HypothesisStatus(data.get("status", "proposed")),
-            evidence_for=data.get("evidence_for", []),
-            evidence_against=data.get("evidence_against", []),
-            challenges=data.get("challenges", []),
-            tests_assigned=data.get("tests_assigned", []),
+            evidence_for=list(data.get("evidence_for", [])),
+            evidence_against=list(data.get("evidence_against", [])),
+            challenges=list(data.get("challenges", [])),
+            tests_assigned=list(data.get("tests_assigned", [])),
             created_at=data.get("created_at", ""),
             entry_id=data.get("entry_id", str(uuid.uuid4())[:8]),
         )
@@ -224,12 +232,15 @@ class Whiteboard:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Whiteboard:
+        # Copy mutable lists to avoid mutating the source state dict.
         return cls(
             session_id=data.get("session_id", str(uuid.uuid4())),
             current_phase=data.get("current_phase", "intake"),
             iteration_count=data.get("iteration_count", 0),
-            symptoms=data.get("symptoms", []),
-            environmental_findings=data.get("environmental_findings", []),
+            symptoms=list(data.get("symptoms", [])),
+            environmental_findings=list(
+                data.get("environmental_findings", [])
+            ),
             entries=[
                 WhiteboardEntry.from_dict(e) for e in data.get("entries", [])
             ],

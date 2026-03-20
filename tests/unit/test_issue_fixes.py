@@ -1,10 +1,15 @@
-"""Tests for Issues 7-11 fixes.
+"""Tests for Issues 7-16 fixes.
 
 Issue 7:  Whiteboard hypotheses populated from agent responses
 Issue 8:  Trimmed message history in _invoke_agent
 Issue 9:  No dual system prompts in House MD factory
 Issue 10: SSE streaming handles AIMessage objects
 Issue 11: Non-streaming response builder handles AIMessage objects
+Issue 12: Smart hypothesis matching (word-overlap similarity)
+Issue 13: Broader hypothesis extraction patterns
+Issue 14: Configurable max_context_messages
+Issue 15: Environmental findings extracted to whiteboard
+Issue 16: PersonalityWrapper always prepends system prompt
 """
 
 from __future__ import annotations
@@ -23,11 +28,14 @@ from maos.api.streaming import (
 )
 from maos.house_md.graphs.critique_round import (
     _find_existing_hypothesis,
+    _hypothesis_similarity,
+    _tokenize,
+    extract_environmental_findings,
     extract_hypotheses,
     run_critique_round,
 )
 from maos.house_md.graphs.factory import (
-    _MAX_CONTEXT_MESSAGES,
+    _DEFAULT_MAX_CONTEXT_MESSAGES,
     _invoke_agent,
 )
 from maos.house_md.graphs.states import DiagnosticPhase
@@ -347,8 +355,8 @@ class TestTrimmedMessageHistory:
         call_args = agent.base_agent.ainvoke.call_args[0][0]
         msgs = call_args["messages"]
         # PersonalityWrapper adds SystemMessage, so:
-        # 1 system + 1 first msg + _MAX_CONTEXT_MESSAGES recent + 1 context = 13
-        assert len(msgs) == 1 + 1 + _MAX_CONTEXT_MESSAGES + 1
+        # 1 system + 1 first msg + _DEFAULT_MAX_CONTEXT_MESSAGES recent + 1 context = 13
+        assert len(msgs) == 1 + 1 + _DEFAULT_MAX_CONTEXT_MESSAGES + 1
         # First is personality system message
         assert isinstance(msgs[0], SystemMessage)
         # Second is preserved original user message
@@ -575,3 +583,405 @@ class TestBuildResponseMessages:
         messages = ["just a string", 42, None]
         result = _build_response_messages(messages)
         assert len(result) == 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 12: Smart hypothesis matching (word-overlap similarity)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestTokenize:
+    def test_basic_tokenization(self):
+        result = _tokenize("Connection Pool Exhaustion")
+        assert "connection" in result
+        assert "pool" in result
+        assert "exhaustion" in result
+
+    def test_stopwords_removed(self):
+        result = _tokenize("the connection is exhausted due to a leak")
+        assert "the" not in result
+        assert "is" not in result
+        assert "due" not in result
+        assert "a" not in result
+        assert "connection" in result
+        assert "exhausted" in result
+        assert "leak" in result
+
+    def test_case_insensitive(self):
+        result = _tokenize("Database CONNECTION Pool")
+        assert "database" in result
+        assert "connection" in result
+        assert "pool" in result
+
+    def test_empty_string(self):
+        result = _tokenize("")
+        assert result == set()
+
+    def test_only_stopwords(self):
+        result = _tokenize("the is a an")
+        assert result == set()
+
+
+class TestHypothesisSimilarity:
+    def test_identical_strings(self):
+        score = _hypothesis_similarity(
+            "connection pool exhaustion", "connection pool exhaustion"
+        )
+        assert score == 1.0
+
+    def test_completely_different(self):
+        score = _hypothesis_similarity("memory leak", "network timeout")
+        assert score == 0.0
+
+    def test_partial_overlap(self):
+        score = _hypothesis_similarity(
+            "connection pool exhaustion due to ORM upgrade",
+            "connection pool exhaustion",
+        )
+        # All words in shorter set appear in longer → 1.0
+        assert score >= 0.8
+
+    def test_subset_match(self):
+        score = _hypothesis_similarity(
+            "pool exhaustion", "connection pool exhaustion"
+        )
+        assert score >= 0.8
+
+    def test_empty_strings(self):
+        assert _hypothesis_similarity("", "") == 0.0
+        assert _hypothesis_similarity("connection pool", "") == 0.0
+
+    def test_below_threshold(self):
+        """Unrelated hypotheses should score below threshold."""
+        score = _hypothesis_similarity(
+            "database connection pool", "race condition in thread scheduler"
+        )
+        assert score < 0.5
+
+    def test_distinguishes_pool_types(self):
+        """'thread pool' and 'connection pool' share 'pool' but differ."""
+        score = _hypothesis_similarity("thread pool starvation", "connection pool exhaustion")
+        # Only "pool" overlaps out of 2-3 meaningful words → low score
+        assert score < 0.5
+
+
+class TestFindExistingHypothesisSimilarity:
+    """Test _find_existing_hypothesis with the word-overlap similarity approach."""
+
+    def test_similar_wording_matches(self):
+        wb = Whiteboard()
+        wb.add_hypothesis("database connection pool exhaustion", "foreman")
+        result = _find_existing_hypothesis(wb, "connection pool exhaustion")
+        assert result is not None
+
+    def test_different_hypothesis_no_match(self):
+        wb = Whiteboard()
+        wb.add_hypothesis("thread pool starvation", "foreman")
+        result = _find_existing_hypothesis(wb, "connection pool exhaustion")
+        assert result is None
+
+    def test_best_match_chosen(self):
+        wb = Whiteboard()
+        wb.add_hypothesis("memory leak in handler", "foreman")
+        wb.add_hypothesis("connection pool exhaustion", "chase")
+        result = _find_existing_hypothesis(wb, "database connection pool exhaustion")
+        assert result is not None
+        assert "connection pool" in result.hypothesis
+
+    def test_empty_whiteboard(self):
+        wb = Whiteboard()
+        result = _find_existing_hypothesis(wb, "any hypothesis")
+        assert result is None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 13: Broader hypothesis extraction patterns
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestBroaderExtractionPatterns:
+    def test_diagnosis_prefix(self):
+        content = "Diagnosis: ORM regression causing connection leaks"
+        results = extract_hypotheses(content, "house")
+        assert len(results) >= 1
+        assert any("orm" in h["hypothesis"].lower() for h in results)
+
+    def test_markdown_bold_hypothesis(self):
+        content = "**Hypothesis**: Thread pool saturation under load"
+        results = extract_hypotheses(content, "chase")
+        assert len(results) >= 1
+
+    def test_bulleted_hypothesis(self):
+        content = "- HYPOTHESIS: Cache invalidation race condition"
+        results = extract_hypotheses(content, "foreman")
+        assert len(results) >= 1
+        assert "cache invalidation" in results[0]["hypothesis"].lower()
+
+    def test_numbered_hypothesis(self):
+        content = "1. Hypothesis: Deadlock in worker threads"
+        results = extract_hypotheses(content, "thirteen")
+        assert len(results) >= 1
+
+    def test_caused_by_pattern(self):
+        content = "This is caused by a misconfigured load balancer timeout."
+        results = extract_hypotheses(content, "chase")
+        assert len(results) >= 1
+
+    def test_triggered_by_pattern(self):
+        content = "This was triggered by a race condition in the scheduler."
+        results = extract_hypotheses(content, "foreman")
+        assert len(results) >= 1
+
+    def test_evidence_suggests_pattern(self):
+        content = "Evidence suggests a memory leak in the request handler."
+        results = extract_hypotheses(content, "thirteen")
+        assert len(results) >= 1
+
+    def test_recommend_investigating_pattern(self):
+        content = "I recommend investigating the connection timeout settings."
+        results = extract_hypotheses(content, "wilson")
+        assert len(results) >= 1
+
+    def test_dedup_within_heuristic_extraction(self):
+        """Multiple causal patterns matching similar text shouldn't duplicate."""
+        content = (
+            "I think the root cause is a thread pool exhaustion. "
+            "I believe the issue is thread pool exhaustion under load."
+        )
+        results = extract_hypotheses(content, "chase")
+        # Should deduplicate similar hypotheses
+        assert len(results) <= 2
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 14: Configurable max_context_messages
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestConfigurableContextMessages:
+    def test_default_value(self):
+        assert _DEFAULT_MAX_CONTEXT_MESSAGES == 10
+
+    @pytest.mark.asyncio
+    async def test_custom_max_context(self):
+        """Custom max_context_messages limits the trimmed history."""
+        agent = _mock_personality_agent("response")
+        many_messages = [HumanMessage(content="original")] + [
+            AIMessage(content=f"msg {i}") for i in range(20)
+        ]
+        state = _make_state(messages=many_messages)
+
+        # Use a custom limit of 5
+        await _invoke_agent(
+            agent, state, "test prompt", "house", max_context_messages=5
+        )
+
+        call_args = agent.base_agent.ainvoke.call_args[0][0]
+        msgs = call_args["messages"]
+        # 1 system (personality) + 1 first msg + 5 recent + 1 context = 8
+        assert len(msgs) == 1 + 1 + 5 + 1
+
+    @pytest.mark.asyncio
+    async def test_large_limit_no_trimming(self):
+        """When limit exceeds message count, no trimming occurs."""
+        agent = _mock_personality_agent("response")
+        state = _make_state(messages=[
+            HumanMessage(content="original"),
+            AIMessage(content="reply"),
+        ])
+
+        await _invoke_agent(
+            agent, state, "test prompt", "house", max_context_messages=100
+        )
+
+        call_args = agent.base_agent.ainvoke.call_args[0][0]
+        msgs = call_args["messages"]
+        # 1 system + 2 original + 1 context = 4
+        assert len(msgs) == 4
+
+    def test_config_model_field_exists(self):
+        """GraphConfig has a max_context_messages field."""
+        from maos.config.models import GraphConfig
+
+        gc = GraphConfig(mode="house_md")
+        assert hasattr(gc, "max_context_messages")
+        assert gc.max_context_messages == 10  # default
+
+    def test_config_model_custom_value(self):
+        from maos.config.models import GraphConfig
+
+        gc = GraphConfig(mode="house_md", max_context_messages=25)
+        assert gc.max_context_messages == 25
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 15: Environmental findings extracted to whiteboard
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestEnvironmentalFindingsExtraction:
+    def test_structured_finding_marker(self):
+        content = "FINDING: Recent deployment changed connection pool size from 10 to 5"
+        results = extract_environmental_findings(content)
+        assert len(results) == 1
+        assert "connection pool size" in results[0].lower()
+
+    def test_multiple_findings(self):
+        content = (
+            "FINDING: Git history shows config change last week\n"
+            "FINDING: Deployment logs indicate version rollback\n"
+        )
+        results = extract_environmental_findings(content)
+        assert len(results) == 2
+
+    def test_finding_case_variants(self):
+        content = "Finding: The environment was recently updated"
+        results = extract_environmental_findings(content)
+        assert len(results) >= 1
+
+    def test_environmental_prefix(self):
+        content = "Environmental: Server memory reduced to 2GB last month"
+        results = extract_environmental_findings(content)
+        assert len(results) >= 1
+
+    def test_heuristic_discovered(self):
+        content = "I discovered that the deployment was rolled back yesterday."
+        results = extract_environmental_findings(content)
+        assert len(results) >= 1
+
+    def test_heuristic_git_history(self):
+        content = "Git history shows a breaking change was merged two days ago."
+        results = extract_environmental_findings(content)
+        assert len(results) >= 1
+
+    def test_heuristic_config_reveals(self):
+        content = "Configuration reveals that SSL certificates expired last week."
+        results = extract_environmental_findings(content)
+        assert len(results) >= 1
+
+    def test_no_findings_in_generic_text(self):
+        content = "Everything looks normal. No issues detected."
+        results = extract_environmental_findings(content)
+        assert len(results) == 0
+
+    def test_short_finding_ignored(self):
+        content = "FINDING: bug"
+        results = extract_environmental_findings(content)
+        assert len(results) == 0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 16: PersonalityWrapper always prepends system prompt
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestPersonalityWrapperAlwaysPrepends:
+    def _make_wrapper(self) -> PersonalityWrapper:
+        base = AsyncMock()
+        personality = PersonalityConfig(
+            name="TestAgent",
+            role_description="test role",
+            system_prompt_additions="be thorough",
+        )
+        return PersonalityWrapper(base_agent=base, personality=personality)
+
+    def test_no_messages_creates_system(self):
+        wrapper = self._make_wrapper()
+        state: dict[str, Any] = {}
+        result = wrapper.enhance_state(state)
+        assert len(result["messages"]) == 1
+        assert isinstance(result["messages"][0], SystemMessage)
+        assert "TestAgent" in result["messages"][0].content
+
+    def test_prepends_before_human_messages(self):
+        wrapper = self._make_wrapper()
+        state: dict[str, Any] = {
+            "messages": [
+                HumanMessage(content="user question"),
+                AIMessage(content="reply"),
+            ]
+        }
+        result = wrapper.enhance_state(state)
+        assert isinstance(result["messages"][0], SystemMessage)
+        assert "TestAgent" in result["messages"][0].content
+        # Original messages preserved after system
+        assert result["messages"][1].content == "user question"
+        assert result["messages"][2].content == "reply"
+
+    def test_merges_existing_system_message(self):
+        wrapper = self._make_wrapper()
+        state: dict[str, Any] = {
+            "messages": [
+                SystemMessage(content="existing system prompt"),
+                HumanMessage(content="user question"),
+            ]
+        }
+        result = wrapper.enhance_state(state)
+        # Should be merged: personality + existing content, then user msg
+        assert len(result["messages"]) == 2  # 1 merged system + 1 human
+        assert isinstance(result["messages"][0], SystemMessage)
+        assert "TestAgent" in result["messages"][0].content
+        assert "existing system prompt" in result["messages"][0].content
+        assert isinstance(result["messages"][1], HumanMessage)
+
+    def test_multiple_system_messages_merged(self):
+        wrapper = self._make_wrapper()
+        state: dict[str, Any] = {
+            "messages": [
+                SystemMessage(content="system A"),
+                HumanMessage(content="user msg"),
+                SystemMessage(content="system B"),
+                AIMessage(content="reply"),
+            ]
+        }
+        result = wrapper.enhance_state(state)
+        # All system content merged into one personality msg at front
+        assert isinstance(result["messages"][0], SystemMessage)
+        assert "system A" in result["messages"][0].content
+        assert "system B" in result["messages"][0].content
+        # Non-system messages preserved in order
+        assert result["messages"][1].content == "user msg"
+        assert result["messages"][2].content == "reply"
+        assert len(result["messages"]) == 3
+
+    def test_dict_system_message_handled(self):
+        wrapper = self._make_wrapper()
+        state: dict[str, Any] = {
+            "messages": [
+                {"role": "system", "content": "dict system prompt"},
+                HumanMessage(content="user question"),
+            ]
+        }
+        result = wrapper.enhance_state(state)
+        assert isinstance(result["messages"][0], SystemMessage)
+        assert "dict system prompt" in result["messages"][0].content
+        assert "TestAgent" in result["messages"][0].content
+
+    def test_personality_always_first(self):
+        """Even with no existing system messages, personality is first."""
+        wrapper = self._make_wrapper()
+        state: dict[str, Any] = {
+            "messages": [
+                AIMessage(content="some AI msg"),
+                HumanMessage(content="user msg"),
+            ]
+        }
+        result = wrapper.enhance_state(state)
+        assert isinstance(result["messages"][0], SystemMessage)
+        assert "house_md_personality" in result["messages"][0].content
+        assert len(result["messages"]) == 3  # system + 2 original
+
+    def test_idempotent_double_enhance(self):
+        """Enhancing twice shouldn't stack system messages."""
+        wrapper = self._make_wrapper()
+        state: dict[str, Any] = {
+            "messages": [HumanMessage(content="question")],
+        }
+        result1 = wrapper.enhance_state(state)
+        result2 = wrapper.enhance_state(result1)
+        # Should still have exactly 1 system message + 1 human
+        system_msgs = [
+            m for m in result2["messages"] if isinstance(m, SystemMessage)
+        ]
+        assert len(system_msgs) == 1
+        assert isinstance(result2["messages"][0], SystemMessage)

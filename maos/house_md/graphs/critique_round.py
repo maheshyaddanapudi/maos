@@ -139,9 +139,13 @@ def extract_hypotheses(
     """
     hypotheses: list[dict[str, Any]] = []
 
-    # Strategy 1: Structured markers  (HYPOTHESIS: ... or **Hypothesis**: ...)
+    # Strategy 1: Structured markers
+    # Matches: "HYPOTHESIS: ...", "**Hypothesis**: ...", "- Hypothesis: ...",
+    # "1. Hypothesis: ...", "Diagnosis: ..."
     structured_pattern = re.compile(
-        r"(?:HYPOTHESIS|Hypothesis|hypothesis)\s*[:]\s*(.+?)(?:\n|$)",
+        r"(?:^|\n)\s*(?:[-*\d.)\]]*\s*)?(?:\*{0,2})"
+        r"(?:HYPOTHESIS|Hypothesis|hypothesis|DIAGNOSIS|Diagnosis|diagnosis)"
+        r"(?:\*{0,2})\s*[:]\s*(.+?)(?=\n|$)",
         re.IGNORECASE,
     )
     for match in structured_pattern.finditer(content):
@@ -159,17 +163,31 @@ def extract_hypotheses(
 
     # Strategy 2: Heuristic — sentences with causal/diagnostic language
     causal_patterns = [
+        # "root cause is X", "cause could be X"
         r"(?:root cause|cause)[^.]*?(?:is|could be|might be|appears to be)\s+(.+?)(?:\.|$)",
+        # "likely caused by X", "probably due to X"
         r"(?:this is likely|most likely|probably)\s+(?:caused by|due to|a)\s+(.+?)(?:\.|$)",
+        # "I believe X", "I suspect X", "diagnosis: X"
         r"(?:I (?:believe|think|suspect)|diagnosis)\s*(?::|is)?\s*(.+?)(?:\.|$)",
-        r"(?:the (?:issue|problem|bug))\s+(?:is|stems from|comes from)\s+(.+?)(?:\.|$)",
+        # "the issue is X", "the problem stems from X"
+        r"(?:the (?:issue|problem|bug|error|failure))\s+(?:is|stems from|comes from|originates from)\s+(.+?)(?:\.|$)",
+        # "caused by X", "due to X", "attributed to X"
+        r"(?:^|[.;])\s*(?:this (?:is|was) )?(?:caused by|due to|attributed to|triggered by)\s+(.+?)(?:\.|$)",
+        # "points to X", "suggests X", "indicates X" (with subject)
+        r"(?:evidence|data|analysis|investigation)\s+(?:points to|suggests|indicates)\s+(.+?)(?:\.|$)",
+        # "recommend investigating X", "should check X"
+        r"(?:recommend|suggest)\s+(?:investigating|checking|looking at|examining)\s+(.+?)(?:\.|$)",
     ]
     for pattern in causal_patterns:
         for match in re.finditer(pattern, content, re.IGNORECASE):
             hyp_text = match.group(1).strip().rstrip(".")
             if hyp_text and 5 < len(hyp_text) < 200:
                 # Avoid duplicates within this extraction
-                if not any(h["hypothesis"].lower() == hyp_text.lower() for h in hypotheses):
+                if not any(
+                    _hypothesis_similarity(h["hypothesis"], hyp_text)
+                    >= _SIMILARITY_THRESHOLD
+                    for h in hypotheses
+                ):
                     hypotheses.append({
                         "hypothesis": hyp_text,
                         "confidence": 0.5,
@@ -205,19 +223,102 @@ def _extract_confidence_from_context(content: str, hypothesis: str) -> float:
     return 0.5
 
 
+_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "in", "on", "at", "to", "for", "of", "with", "by", "from", "as",
+    "it", "its", "this", "that", "and", "or", "but", "not", "so",
+    "if", "then", "than", "do", "does", "did", "has", "have", "had",
+    "may", "might", "can", "could", "will", "would", "should",
+    "due", "caused", "causing", "likely", "possible", "probably",
+})
+
+# Minimum word-overlap ratio to consider two hypotheses the same.
+_SIMILARITY_THRESHOLD = 0.5
+
+
+def _tokenize(text: str) -> set[str]:
+    """Split text into a set of meaningful lowercase words."""
+    words = set(re.findall(r"[a-z0-9]+", text.lower()))
+    return words - _STOPWORDS
+
+
+def _hypothesis_similarity(a: str, b: str) -> float:
+    """Compute word-overlap similarity between two hypothesis strings.
+
+    Returns a value in [0, 1].  1 means every significant word in one
+    string appears in the other.
+    """
+    words_a = _tokenize(a)
+    words_b = _tokenize(b)
+    if not words_a or not words_b:
+        return 0.0
+    overlap = len(words_a & words_b)
+    # Jaccard-like: overlap / size of the *smaller* set so that a short
+    # hypothesis can still match a long one if all its words appear.
+    return overlap / min(len(words_a), len(words_b))
+
+
 def _find_existing_hypothesis(whiteboard: Whiteboard, hypothesis_text: str):
     """Find an existing whiteboard entry that matches a hypothesis.
 
-    Uses case-insensitive substring matching to find duplicates.
+    Uses word-overlap similarity to avoid false positives from naive
+    substring matching (e.g. "pool" matching "thread pool" *and*
+    "connection pool").
     """
-    hyp_lower = hypothesis_text.lower()
+    best_entry = None
+    best_score = 0.0
     for entry in whiteboard.get_active_hypotheses():
-        if (
-            hyp_lower in entry.hypothesis.lower()
-            or entry.hypothesis.lower() in hyp_lower
-        ):
-            return entry
+        score = _hypothesis_similarity(entry.hypothesis, hypothesis_text)
+        if score > best_score:
+            best_score = score
+            best_entry = entry
+    if best_score >= _SIMILARITY_THRESHOLD:
+        return best_entry
     return None
+
+
+def extract_environmental_findings(content: str) -> list[str]:
+    """Extract environmental findings from an agent's response text.
+
+    Looks for structured ``FINDING:`` markers first, then falls back to
+    heuristic patterns that identify contextual discoveries.
+
+    Returns:
+        List of finding strings.
+    """
+    findings: list[str] = []
+
+    # Strategy 1: Structured markers
+    structured = re.compile(
+        r"(?:^|\n)\s*(?:[-*\d.)\]]*\s*)?(?:\*{0,2})"
+        r"(?:FINDING|Finding|finding|ENVIRONMENTAL|Environmental)"
+        r"(?:\*{0,2})\s*[:]\s*(.+?)(?=\n|$)",
+        re.IGNORECASE,
+    )
+    for match in structured.finditer(content):
+        text = match.group(1).strip().rstrip(".")
+        if text and len(text) > 5:
+            findings.append(text)
+
+    if findings:
+        return findings
+
+    # Strategy 2: Heuristic patterns
+    env_patterns = [
+        r"(?:found|discovered|noticed|observed)\s+(?:that\s+)?(.+?)(?:\.|$)",
+        r"(?:git (?:history|log|blame)|deployment|environment|config(?:uration)?)\s+"
+        r"(?:shows?|reveals?|indicates?)\s+(.+?)(?:\.|$)",
+        r"(?:the (?:patient|system|codebase) (?:isn't|is not|wasn't) telling us)\s+(.+?)(?:\.|$)",
+        r"(?:hidden|unreported|overlooked)\s+(?:factor|issue|change)[:]\s*(.+?)(?:\.|$)",
+    ]
+    for pattern in env_patterns:
+        for match in re.finditer(pattern, content, re.IGNORECASE):
+            text = match.group(1).strip().rstrip(".")
+            if text and 5 < len(text) < 300:
+                if text not in findings:
+                    findings.append(text)
+
+    return findings
 
 
 def _build_critique_prompt(whiteboard: Whiteboard, agent_name: str) -> str:

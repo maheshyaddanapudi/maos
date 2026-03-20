@@ -160,6 +160,15 @@ class GraphConfig(BaseModel):
     """LangGraph execution configuration."""
     mode: Literal["supervisor", "house_md"] = "supervisor"
     max_iterations: int = Field(default=12, ge=1, le=100)
+    max_context_messages: int = Field(
+        default=10, ge=1, le=200,
+        description=(
+            "Maximum number of recent messages to include in House MD "
+            "agent invocations. The original user message is always "
+            "preserved. Higher values give agents more history but "
+            "increase token usage."
+        ),
+    )
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     retry_policy: RetryPolicy | None = None
     checkpointer: CheckpointerConfig = Field(default_factory=CheckpointerConfig)

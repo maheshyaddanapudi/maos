@@ -20,7 +20,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import create_react_agent
 
-from maos.house_md.graphs.critique_round import run_critique_round
+from maos.house_md.graphs.critique_round import (
+    extract_environmental_findings,
+    run_critique_round,
+)
 from maos.house_md.graphs.states import DiagnosticPhase, DiagnosticState
 from maos.house_md.memory.whiteboard import Whiteboard
 from maos.house_md.personalities.base import PersonalityWrapper, TeamContext
@@ -56,6 +59,9 @@ class HouseMDGraphFactory:
         self._llm_factory = llm_factory
         self._tool_registry = tool_registry
         self._max_iterations = config.graph.max_iterations or MAX_ITERATIONS
+        self._max_context_messages = getattr(
+            config.graph, "max_context_messages", _DEFAULT_MAX_CONTEXT_MESSAGES
+        )
 
     def build(self) -> StateGraph:
         """Build the House MD diagnostic StateGraph with real agents."""
@@ -67,6 +73,7 @@ class HouseMDGraphFactory:
         workflow = StateGraph(DiagnosticState)
 
         max_iterations = self._max_iterations
+        max_context_messages = self._max_context_messages
 
         # ── Node: intake ─────────────────────────────────────────────
         async def intake_node(state: DiagnosticState) -> dict[str, Any]:
@@ -99,7 +106,8 @@ class HouseMDGraphFactory:
                     f"Symptoms: {', '.join(symptoms)}"
                 )
                 result = await _invoke_agent(
-                    house, state, intake_prompt, "house"
+                    house, state, intake_prompt, "house",
+                    max_context_messages=max_context_messages,
                 )
                 response_content = _extract_content(result)
                 intake_msg = AIMessage(
@@ -195,7 +203,8 @@ class HouseMDGraphFactory:
             house = personality_agents.get("house")
             if house:
                 result = await _invoke_agent(
-                    house, state, context, "house"
+                    house, state, context, "house",
+                    max_context_messages=max_context_messages,
                 )
                 response_content = _extract_content(result)
                 prov_msg = AIMessage(
@@ -235,7 +244,8 @@ class HouseMDGraphFactory:
                     f"result. Rule out what you can."
                 )
                 result = await _invoke_agent(
-                    chase, state, prompt, "chase"
+                    chase, state, prompt, "chase",
+                    max_context_messages=max_context_messages,
                 )
                 response_content = _extract_content(result)
                 test_msg = AIMessage(
@@ -274,12 +284,21 @@ class HouseMDGraphFactory:
                     "Investigate beyond the reported symptoms. Examine the "
                     "codebase context, deployment environment, git history, "
                     "and any environmental factors. What isn't the 'patient' "
-                    "telling us?"
+                    "telling us?\n\n"
+                    "IMPORTANT: When you discover something, use this format:\n"
+                    "FINDING: <your finding here>"
                 )
                 result = await _invoke_agent(
-                    thirteen, state, prompt, "thirteen"
+                    thirteen, state, prompt, "thirteen",
+                    max_context_messages=max_context_messages,
                 )
                 response_content = _extract_content(result)
+
+                # Extract environmental findings and add to whiteboard
+                findings = extract_environmental_findings(response_content)
+                for finding in findings:
+                    whiteboard.add_environmental_finding(finding)
+
                 env_msg = AIMessage(
                     content=(
                         f"[Thirteen - Environmental] {response_content}"
@@ -324,7 +343,8 @@ class HouseMDGraphFactory:
                     f"Whiteboard: {whiteboard.summary()}"
                 )
                 result = await _invoke_agent(
-                    wilson, state, prompt, "wilson"
+                    wilson, state, prompt, "wilson",
+                    max_context_messages=max_context_messages,
                 )
                 response_content = _extract_content(result)
                 wilson_msg = AIMessage(
@@ -372,7 +392,8 @@ class HouseMDGraphFactory:
                     f"Deliver the diagnosis and prescribe the treatment."
                 )
                 result = await _invoke_agent(
-                    house, state, prompt, "house"
+                    house, state, prompt, "house",
+                    max_context_messages=max_context_messages,
                 )
                 response_content = _extract_content(result)
                 resolution_msg = AIMessage(
@@ -569,9 +590,8 @@ class HouseMDGraphFactory:
         return wrapped
 
 
-# Maximum number of recent messages to include in agent invocations.
-# Keeps token usage bounded as conversation history grows across iterations.
-_MAX_CONTEXT_MESSAGES = 10
+# Default maximum recent messages when no config is provided.
+_DEFAULT_MAX_CONTEXT_MESSAGES = 10
 
 
 async def _invoke_agent(
@@ -579,13 +599,23 @@ async def _invoke_agent(
     state: DiagnosticState,
     phase_prompt: str,
     agent_name: str,
+    max_context_messages: int = _DEFAULT_MAX_CONTEXT_MESSAGES,
 ) -> dict[str, Any]:
     """Invoke a personality-wrapped agent with phase context.
 
     Builds a trimmed message list with whiteboard context and the
     phase-specific prompt, then invokes the wrapped agent.  Only the
-    original user message plus the most recent ``_MAX_CONTEXT_MESSAGES``
+    original user message plus the most recent *max_context_messages*
     messages are forwarded to avoid unbounded token growth.
+
+    Args:
+        agent: Personality-wrapped agent to invoke.
+        state: Current diagnostic state.
+        phase_prompt: Phase-specific instruction for the agent.
+        agent_name: Name of the agent (for logging).
+        max_context_messages: Maximum number of recent messages to
+            include.  Defaults to ``_DEFAULT_MAX_CONTEXT_MESSAGES``
+            but can be overridden via ``config.graph.max_context_messages``.
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
 
@@ -600,9 +630,9 @@ async def _invoke_agent(
     # Build trimmed message list: keep the original user message (first)
     # plus the most recent messages to bound token usage.
     all_messages = list(state["messages"])
-    if len(all_messages) > _MAX_CONTEXT_MESSAGES + 1:
+    if len(all_messages) > max_context_messages + 1:
         # Always include the first message (original user request)
-        trimmed = [all_messages[0]] + all_messages[-_MAX_CONTEXT_MESSAGES:]
+        trimmed = [all_messages[0]] + all_messages[-max_context_messages:]
     else:
         trimmed = all_messages
 

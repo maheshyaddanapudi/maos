@@ -136,33 +136,43 @@ class PersonalityWrapper:
         )
 
     def enhance_state(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Add personality context to state."""
+        """Add personality context to state.
+
+        Guarantees that the first message is always a ``SystemMessage``
+        containing the personality-enhanced prompt.  If an existing
+        system message is found it is merged; otherwise a fresh one is
+        prepended.  This ensures every invocation — regardless of how
+        the state is constructed — carries the agent's identity.
+        """
         enhanced = state.copy()
         if "messages" not in enhanced:
+            # If no messages at all, create a list with just the personality
+            enhanced["messages"] = [
+                SystemMessage(content=self.build_enhanced_prompt(""))
+            ]
             return enhanced
 
         messages = list(enhanced["messages"])
-        system_enhanced = False
 
-        for i, msg in enumerate(messages):
+        # Collect existing system content and strip system messages
+        existing_system_content = ""
+        non_system: list[Any] = []
+        for msg in messages:
             if isinstance(msg, SystemMessage):
-                messages[i] = SystemMessage(
-                    content=self.build_enhanced_prompt(msg.content)
-                )
-                system_enhanced = True
-                break
-            if isinstance(msg, dict) and msg.get("role") == "system":
-                messages[i] = {
-                    "role": "system",
-                    "content": self.build_enhanced_prompt(msg["content"]),
-                }
-                system_enhanced = True
-                break
+                existing_system_content += msg.content
+            elif isinstance(msg, dict) and msg.get("role") == "system":
+                existing_system_content += msg.get("content", "")
+            else:
+                non_system.append(msg)
 
-        if not system_enhanced:
-            messages.insert(0, SystemMessage(content=self.build_enhanced_prompt("")))
+        # Build the enhanced personality prompt (merging any existing
+        # system content so nothing is lost).
+        personality_msg = SystemMessage(
+            content=self.build_enhanced_prompt(existing_system_content)
+        )
 
-        enhanced["messages"] = messages
+        # Personality SystemMessage is always first.
+        enhanced["messages"] = [personality_msg] + non_system
 
         if self.team_context:
             enhanced["team_context"] = {

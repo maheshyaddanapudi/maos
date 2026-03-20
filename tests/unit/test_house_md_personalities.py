@@ -142,8 +142,9 @@ class TestPersonalityWrapper:
             ]
         }
         enhanced = wrapper.enhance_state(state)
-        assert enhanced["messages"][0]["role"] == "system"
-        assert "Cameron" in enhanced["messages"][0]["content"]
+        # enhance_state now returns SystemMessage objects (merging dict system msgs)
+        assert isinstance(enhanced["messages"][0], SystemMessage)
+        assert "Cameron" in enhanced["messages"][0].content
 
     def test_enhance_state_no_messages(self):
         wrapper = PersonalityWrapper(
@@ -153,7 +154,10 @@ class TestPersonalityWrapper:
         state = {"other_key": "value"}
         enhanced = wrapper.enhance_state(state)
         assert "other_key" in enhanced
-        assert "messages" not in enhanced
+        # Now creates a messages list with a personality SystemMessage
+        assert "messages" in enhanced
+        assert len(enhanced["messages"]) == 1
+        assert isinstance(enhanced["messages"][0], SystemMessage)
 
     def test_enhance_state_adds_team_context(self):
         context = TeamContext(

@@ -173,6 +173,17 @@ class PersonalityWrapper:
 
         return enhanced
 
+    async def ainvoke(
+        self, state: dict[str, Any], config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Async invoke the wrapped agent with personality injection.
+
+        This is the primary entry point, matching LangGraph's ``ainvoke``
+        convention so the wrapper can be used anywhere a LangGraph runnable
+        is expected (e.g., in ``run_critique_round``).
+        """
+        return await self.invoke(state, config)
+
     async def invoke(
         self, state: dict[str, Any], config: dict[str, Any] | None = None
     ) -> dict[str, Any]:

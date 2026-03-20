@@ -150,10 +150,19 @@ class Whiteboard:
                 return True
         return False
 
-    def advance_phase(self, new_phase: str) -> None:
-        """Advance to the next diagnostic phase."""
+    def advance_phase(self, new_phase: str, iteration: int | None = None) -> None:
+        """Advance to the next diagnostic phase.
+
+        Args:
+            new_phase: The new phase name.
+            iteration: If provided, sync whiteboard iteration to the graph's
+                       iteration counter (prevents counter drift).
+        """
         self.current_phase = new_phase
-        self.iteration_count += 1
+        if iteration is not None:
+            self.iteration_count = iteration
+        else:
+            self.iteration_count += 1
 
     def add_symptom(self, symptom: str) -> None:
         """Record a new symptom/observation."""

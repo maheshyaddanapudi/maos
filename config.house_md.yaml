@@ -41,6 +41,32 @@ llms:
     max_tokens: 2048
 
 # ============================================================================
+# MCP Servers & Tools (optional but recommended)
+# ============================================================================
+#
+# Without MCP tools, agents operate as pure text-reasoning agents — they can
+# discuss, diagnose, and propose solutions but cannot execute code, query
+# databases, or interact with external systems.
+#
+# To enable tool use, add MCP server configurations here and assign tools
+# to agents via the `tools:` field on each agent config. For example:
+#
+#   mcp_servers:
+#     filesystem:
+#       transport: stdio
+#       command: ["npx", "-y", "@anthropic/mcp-filesystem", "/workspace"]
+#
+#   tools:
+#     read_file:
+#       server: filesystem
+#       tool_name: read_file
+#
+#   agents:
+#     chase:
+#       tools: [read_file]
+#       ...
+
+# ============================================================================
 # Agents — House MD Diagnostic Team
 # ============================================================================
 
@@ -269,6 +295,7 @@ agents:
 # ============================================================================
 
 graph:
+  mode: house_md  # Use structured diagnostic protocol instead of flat supervisor
   max_iterations: 15  # Higher for multi-round diagnostic sessions
 
   timeouts:

@@ -158,6 +158,7 @@ class CheckpointerConfig(BaseModel):
 
 class GraphConfig(BaseModel):
     """LangGraph execution configuration."""
+    mode: Literal["supervisor", "house_md"] = "supervisor"
     max_iterations: int = Field(default=12, ge=1, le=100)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     retry_policy: RetryPolicy | None = None

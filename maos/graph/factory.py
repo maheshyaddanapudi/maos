@@ -169,11 +169,20 @@ class GraphFactory:
 
     def build(self) -> StateGraph:
         """
-        Build the LangGraph state graph using create_supervisor.
+        Build the LangGraph state graph.
+
+        When ``config.graph.mode == "house_md"``, delegates to
+        :class:`~maos.house_md.graphs.factory.HouseMDGraphFactory` which
+        builds the structured diagnostic protocol graph.  Otherwise uses
+        ``langgraph-supervisor``'s ``create_supervisor`` for a flat
+        supervisor-worker topology.
 
         Returns:
             Configured StateGraph ready for compilation.
         """
+        if self._graph_config.mode == "house_md":
+            return self._build_house_md()
+
         # Get supervisor config
         supervisor = self._agent_registry.get_supervisor()
         if supervisor is None:
@@ -247,6 +256,18 @@ class GraphFactory:
         )
 
         return workflow
+
+    def _build_house_md(self) -> StateGraph:
+        """Build the House MD diagnostic graph with real agents."""
+        from maos.house_md.graphs.factory import HouseMDGraphFactory
+
+        house_factory = HouseMDGraphFactory(
+            config=self._config,
+            agent_registry=self._agent_registry,
+            llm_factory=self._llm_factory,
+            tool_registry=self._tool_registry,
+        )
+        return house_factory.build()
 
     def compile(self, checkpointer=None):
         """Build and compile the graph."""

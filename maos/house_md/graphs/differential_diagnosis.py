@@ -57,7 +57,8 @@ def intake_node(state: DiagnosticState) -> dict[str, Any]:
     'Everybody lies' — question assumptions about what's reported.
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
-    whiteboard.advance_phase(DiagnosticPhase.INTAKE.value)
+    iteration = state.get("iteration", 0)
+    whiteboard.advance_phase(DiagnosticPhase.INTAKE.value, iteration)
 
     messages = list(state["messages"])
     last_user_msg = ""
@@ -97,7 +98,8 @@ def differential_node(state: DiagnosticState) -> dict[str, Any]:
     Each active team member proposes hypotheses from their specialty.
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
-    whiteboard.advance_phase(DiagnosticPhase.DIFFERENTIAL.value)
+    iteration = state.get("iteration", 0)
+    whiteboard.advance_phase(DiagnosticPhase.DIFFERENTIAL.value, iteration)
 
     symptoms_text = ", ".join(state.get("symptoms", ["unknown"]))
 
@@ -128,8 +130,8 @@ def provocation_node(state: DiagnosticState) -> dict[str, Any]:
     - Override if pattern recognition triggers
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
-    whiteboard.advance_phase(DiagnosticPhase.PROVOCATION.value)
     iteration = state.get("iteration", 0) + 1
+    whiteboard.advance_phase(DiagnosticPhase.PROVOCATION.value, iteration)
 
     active = whiteboard.get_active_hypotheses()
     top = whiteboard.get_top_hypothesis()
@@ -178,7 +180,8 @@ def testing_node(state: DiagnosticState) -> dict[str, Any]:
     'It's never lupus' — common diagnoses were likely already ruled out.
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
-    whiteboard.advance_phase(DiagnosticPhase.TESTING.value)
+    iteration = state.get("iteration", 0)
+    whiteboard.advance_phase(DiagnosticPhase.TESTING.value, iteration)
 
     active = whiteboard.get_active_hypotheses()
     test_summary = ", ".join(h.hypothesis for h in active[:3])
@@ -205,7 +208,8 @@ def environmental_node(state: DiagnosticState) -> dict[str, Any]:
     environment, user patterns. Find what the patient isn't telling us.
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
-    whiteboard.advance_phase(DiagnosticPhase.ENVIRONMENTAL.value)
+    iteration = state.get("iteration", 0)
+    whiteboard.advance_phase(DiagnosticPhase.ENVIRONMENTAL.value, iteration)
 
     env_msg = AIMessage(
         content=(
@@ -230,7 +234,8 @@ def wilson_consult_node(state: DiagnosticState) -> dict[str, Any]:
     The eureka trigger: cross-domain insight that unlocks the case.
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
-    whiteboard.advance_phase(DiagnosticPhase.WILSON_CONSULT.value)
+    iteration = state.get("iteration", 0)
+    whiteboard.advance_phase(DiagnosticPhase.WILSON_CONSULT.value, iteration)
 
     symptoms = state.get("symptoms", [])
     wilson_msg = AIMessage(
@@ -258,7 +263,8 @@ def resolution_node(state: DiagnosticState) -> dict[str, Any]:
     If not: summarize the best hypothesis and explain remaining uncertainty.
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
-    whiteboard.advance_phase(DiagnosticPhase.RESOLUTION.value)
+    iteration = state.get("iteration", 0)
+    whiteboard.advance_phase(DiagnosticPhase.RESOLUTION.value, iteration)
 
     confirmed = whiteboard.get_confirmed()
     top = whiteboard.get_top_hypothesis()

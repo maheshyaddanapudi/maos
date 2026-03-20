@@ -19,6 +19,9 @@ from maos.api.models import (
 from maos.api.streaming import stream_graph_events
 from maos.api.thread_id import resolve_thread_id
 from maos.graph.state import WorkerResult, create_initial_state
+from maos.house_md.graphs.differential_diagnosis import (
+    create_initial_diagnostic_state,
+)
 
 logger = structlog.get_logger()
 
@@ -86,12 +89,29 @@ async def chat(
         for msg in request.messages
     ]
 
-    # Create initial state
-    initial_state = create_initial_state(
-        messages=messages,
-        roster=roster,
-        thread_id=thread_id
-    )
+    # Create initial state — branch on graph mode
+    app_config = context.get("config")
+    graph_mode = "supervisor"
+    if app_config and hasattr(app_config, "graph"):
+        graph_mode = getattr(app_config.graph, "mode", "supervisor")
+
+    if graph_mode == "house_md":
+        # Extract user message for diagnostic state
+        user_message = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_message = msg.get("content", "")
+                break
+        initial_state = create_initial_diagnostic_state(
+            user_message=user_message,
+            active_team=roster or None,
+        )
+    else:
+        initial_state = create_initial_state(
+            messages=messages,
+            roster=roster,
+            thread_id=thread_id,
+        )
 
     # Config for graph execution
     config = {"configurable": {"thread_id": thread_id}}

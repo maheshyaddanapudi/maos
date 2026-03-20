@@ -219,6 +219,23 @@ class TestPersonalityWrapper:
         assert result["metadata"]["personality"] == "Wilson"
 
     @pytest.mark.asyncio
+    async def test_ainvoke_delegates_to_invoke(self):
+        """ainvoke is an alias for invoke (LangGraph convention)."""
+        mock_agent = MagicMock()
+        mock_agent.ainvoke = AsyncMock(return_value={
+            "messages": [AIMessage(content="via ainvoke")],
+        })
+        wrapper = PersonalityWrapper(
+            base_agent=mock_agent,
+            personality=CHASE_PERSONALITY,
+        )
+        result = await wrapper.ainvoke(
+            {"messages": [HumanMessage(content="test")]}
+        )
+        assert result["metadata"]["personality"] == "Chase"
+        assert wrapper.invocation_count == 1
+
+    @pytest.mark.asyncio
     async def test_invoke_not_invocable(self):
         wrapper = PersonalityWrapper(
             base_agent="not_callable",

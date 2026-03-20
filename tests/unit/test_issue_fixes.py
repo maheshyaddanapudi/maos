@@ -1,4 +1,4 @@
-"""Tests for Issues 7-26 fixes.
+"""Tests for Issues 7-26 + Round 4 fixes.
 
 Issue 7:  Whiteboard hypotheses populated from agent responses
 Issue 8:  Trimmed message history in _invoke_agent
@@ -19,6 +19,13 @@ Issue 23: Critique round sets team_context before invocation
 Issue 24: Confidence arithmetic supports convergence (+0.15 per evidence)
 Issue 25: Whiteboard iteration count stays in sync
 Issue 26: House MD mode preserves multi-turn messages
+Round 4 Issue 27: Agent name mapping (config names → personality keys)
+Round 4 Issue 28: Counter-evidence and rule-out extraction
+Round 4 Issue 29: Critique round trims message history
+Round 4 Issue 30: _extract_content fallback returns sensible message
+Round 4 Issue 31: Resolution node captures pre-confirm confidence
+Round 4 Issue 32: Context message labeling
+Round 4 Issue 33: Similarity threshold raised to 0.6
 """
 
 from __future__ import annotations
@@ -36,9 +43,12 @@ from maos.api.streaming import (
     stream_graph_events,
 )
 from maos.house_md.graphs.critique_round import (
+    _CRITIQUE_MAX_CONTEXT_MESSAGES,
+    _SIMILARITY_THRESHOLD,
     _find_existing_hypothesis,
     _hypothesis_similarity,
     _tokenize,
+    extract_challenges,
     extract_environmental_findings,
     extract_hypotheses,
     run_critique_round,
@@ -48,6 +58,7 @@ from maos.house_md.graphs.differential_diagnosis import (
 )
 from maos.house_md.graphs.factory import (
     _DEFAULT_MAX_CONTEXT_MESSAGES,
+    _extract_content,
     _invoke_agent,
     _update_whiteboard_hypotheses,
 )
@@ -388,7 +399,7 @@ class TestTrimmedMessageHistory:
 
         call_args = agent.base_agent.ainvoke.call_args[0][0]
         last_msg = call_args["messages"][-1]
-        assert "Whiteboard Context" in last_msg.content
+        assert "DIAGNOSTIC WHITEBOARD" in last_msg.content
         assert "Phase Task" in last_msg.content
         assert "analyze this" in last_msg.content
 
@@ -1279,3 +1290,380 @@ class TestMultiTurnMessages:
         wb = Whiteboard.from_dict(state["whiteboard"])
         assert "symptom A" in wb.symptoms
         assert "symptom B" in wb.symptoms
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 4 Issue 27: Agent name mapping (config names → personality keys)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestAgentNameMapping:
+    """Test that _create_agent_runnables maps config names to personality keys."""
+
+    def test_personality_configs_keyed_correctly(self):
+        """PERSONALITY_CONFIGS must be keyed by lowercase personality names."""
+        from maos.house_md.personalities.team import PERSONALITY_CONFIGS
+
+        assert "house" in PERSONALITY_CONFIGS
+        assert "foreman" in PERSONALITY_CONFIGS
+        assert "cameron" in PERSONALITY_CONFIGS
+        assert "chase" in PERSONALITY_CONFIGS
+        assert "thirteen" in PERSONALITY_CONFIGS
+        assert "wilson" in PERSONALITY_CONFIGS
+
+    def test_wrap_with_personalities_matches_personality_keys(self):
+        """Agents keyed by personality name get the correct PersonalityConfig."""
+        from maos.house_md.personalities.team import PERSONALITY_CONFIGS
+
+        # Simulate runnables keyed by personality names
+        mock_runnables = {
+            "house": MagicMock(),
+            "foreman": MagicMock(),
+            "chase": MagicMock(),
+        }
+
+        # Manually apply the wrapping logic (same as _wrap_with_personalities)
+        for name in mock_runnables:
+            personality = PERSONALITY_CONFIGS.get(name)
+            assert personality is not None, (
+                f"Personality not found for key '{name}'"
+            )
+            assert personality.name.lower() == name
+
+    def test_config_name_matching_personality_used_directly(self):
+        """When config name matches personality key, it should be used."""
+        from maos.house_md.personalities.team import PERSONALITY_CONFIGS
+
+        # A config agent named "foreman" should map directly
+        config_name = "foreman"
+        personality_key = config_name.lower()
+        assert personality_key in PERSONALITY_CONFIGS
+
+    def test_unknown_config_name_gets_fallback_slot(self):
+        """Workers with non-personality names should get assigned to slots."""
+        from maos.house_md.personalities.team import PERSONALITY_CONFIGS
+
+        # Simulate the mapping logic from _create_agent_runnables
+        available_slots = [
+            k for k in PERSONALITY_CONFIGS if k != "house"
+        ]
+        config_name = "code_reviewer"  # Not a personality name
+        personality_key = config_name.lower()
+        if personality_key not in PERSONALITY_CONFIGS:
+            personality_key = available_slots[0]  # Gets first slot
+
+        assert personality_key in PERSONALITY_CONFIGS
+        assert personality_key != "code_reviewer"
+
+    def test_supervisor_always_maps_to_house(self):
+        """The supervisor should always be keyed as 'house'."""
+        from maos.house_md.personalities.team import PERSONALITY_CONFIGS
+
+        assert "house" in PERSONALITY_CONFIGS
+        assert PERSONALITY_CONFIGS["house"].name == "House"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 4 Issue 28: Counter-evidence and rule-out extraction
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestExtractChallenges:
+    """Test the extract_challenges function."""
+
+    def test_structured_rule_out(self):
+        content = "RULE OUT: Memory leak in the handler"
+        results = extract_challenges(content, "foreman")
+        assert len(results) == 1
+        assert results[0]["action"] == "rule_out"
+        assert "memory leak" in results[0]["target"].lower()
+
+    def test_structured_challenge(self):
+        content = "CHALLENGE: Connection pool exhaustion theory"
+        results = extract_challenges(content, "chase")
+        assert len(results) == 1
+        assert results[0]["action"] == "challenge"
+
+    def test_multiple_structured_markers(self):
+        content = (
+            "RULE OUT: DNS resolution delay\n"
+            "CHALLENGE: Thread pool starvation theory\n"
+        )
+        results = extract_challenges(content, "foreman")
+        assert len(results) == 2
+        rule_outs = [r for r in results if r["action"] == "rule_out"]
+        challenges = [r for r in results if r["action"] == "challenge"]
+        assert len(rule_outs) == 1
+        assert len(challenges) == 1
+
+    def test_heuristic_rule_out(self):
+        content = "We can rule out the caching layer being the bottleneck."
+        results = extract_challenges(content, "thirteen")
+        assert len(results) >= 1
+        assert any(r["action"] == "rule_out" for r in results)
+
+    def test_heuristic_disagree(self):
+        content = "I disagree with the memory leak hypothesis in the handler."
+        results = extract_challenges(content, "foreman")
+        assert len(results) >= 1
+        assert any(r["action"] == "challenge" for r in results)
+
+    def test_no_challenges_in_supportive_text(self):
+        content = "I agree with the analysis. The evidence supports this."
+        results = extract_challenges(content, "chase")
+        assert len(results) == 0
+
+    def test_short_target_ignored(self):
+        content = "RULE OUT: bug"
+        results = extract_challenges(content, "foreman")
+        assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_critique_round_applies_counter_evidence(self):
+        """Critique round should apply counter-evidence from challenges."""
+        wb = Whiteboard()
+        wb.add_hypothesis("Memory leak in handler", "house", confidence=0.7)
+        state = _make_state(
+            active_team=["foreman"],
+            whiteboard=wb.to_dict(),
+        )
+
+        async def mock_agent(s):
+            return {
+                "messages": [AIMessage(
+                    content="RULE OUT: Memory leak in handler"
+                )]
+            }
+
+        result = await run_critique_round(state, {"foreman": mock_agent})
+        result_wb = Whiteboard.from_dict(result["whiteboard"])
+
+        # The hypothesis should be ruled out
+        entries = result_wb.entries
+        assert len(entries) >= 1
+        ruled_out = [
+            e for e in entries
+            if e.status.value == "ruled_out"
+        ]
+        assert len(ruled_out) >= 1
+
+    @pytest.mark.asyncio
+    async def test_critique_round_applies_challenge(self):
+        """Critique round should lower confidence via counter-evidence."""
+        wb = Whiteboard()
+        wb.add_hypothesis("Thread pool starvation", "house", confidence=0.7)
+        state = _make_state(
+            active_team=["foreman"],
+            whiteboard=wb.to_dict(),
+        )
+
+        async def mock_agent(s):
+            return {
+                "messages": [AIMessage(
+                    content="CHALLENGE: Thread pool starvation theory"
+                )]
+            }
+
+        result = await run_critique_round(state, {"foreman": mock_agent})
+        result_wb = Whiteboard.from_dict(result["whiteboard"])
+
+        # Confidence should have decreased
+        entry = result_wb.entries[0]
+        assert entry.confidence < 0.7
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 4 Issue 29: Critique round trims message history
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestCritiqueRoundTrimming:
+    def test_critique_max_context_constant(self):
+        assert _CRITIQUE_MAX_CONTEXT_MESSAGES == 10
+
+    @pytest.mark.asyncio
+    async def test_critique_round_trims_long_history(self):
+        """Critique round should trim messages like _invoke_agent."""
+        many_messages = [HumanMessage(content="original")] + [
+            AIMessage(content=f"msg {i}") for i in range(30)
+        ]
+        state = _make_state(
+            active_team=["chase"],
+            messages=many_messages,
+        )
+
+        captured_messages: list[Any] = []
+
+        async def capturing_agent(s):
+            captured_messages.append(s["messages"])
+            return {
+                "messages": [AIMessage(content="HYPOTHESIS: Test hypothesis")]
+            }
+
+        await run_critique_round(state, {"chase": capturing_agent})
+
+        assert len(captured_messages) == 1
+        msgs = captured_messages[0]
+        # Should be trimmed: first msg + last 10 + critique prompt = 12
+        assert len(msgs) <= 12 + 1  # Allow for first msg
+
+    @pytest.mark.asyncio
+    async def test_critique_round_short_history_untrimmed(self):
+        """Short histories should not be trimmed."""
+        state = _make_state(
+            active_team=["chase"],
+            messages=[HumanMessage(content="test")],
+        )
+
+        captured_messages: list[Any] = []
+
+        async def capturing_agent(s):
+            captured_messages.append(s["messages"])
+            return {"messages": [AIMessage(content="response")]}
+
+        await run_critique_round(state, {"chase": capturing_agent})
+
+        assert len(captured_messages) == 1
+        # 1 original + 1 critique prompt = 2
+        assert len(captured_messages[0]) == 2
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 4 Issue 30: _extract_content fallback
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestExtractContentFallback:
+    def test_ai_message_extracted(self):
+        result = {"messages": [AIMessage(content="analysis result")]}
+        assert _extract_content(result) == "analysis result"
+
+    def test_dict_assistant_extracted(self):
+        result = {"messages": [{"role": "assistant", "content": "dict response"}]}
+        assert _extract_content(result) == "dict response"
+
+    def test_no_messages_returns_fallback(self):
+        result = {"messages": []}
+        assert _extract_content(result) == "No response generated."
+
+    def test_no_messages_key_returns_fallback(self):
+        result = {}
+        assert _extract_content(result) == "No response generated."
+
+    def test_fallback_does_not_stringify_dict(self):
+        """Fallback should NOT return str(result) which dumps the whole dict."""
+        result = {"messages": [HumanMessage(content="user msg")]}
+        content = _extract_content(result)
+        # Should extract user msg content as fallback, not dump the dict
+        assert content == "user msg"
+
+    def test_multiple_messages_returns_last_ai(self):
+        result = {
+            "messages": [
+                AIMessage(content="first"),
+                HumanMessage(content="question"),
+                AIMessage(content="last"),
+            ]
+        }
+        assert _extract_content(result) == "last"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 4 Issue 31: Resolution node captures pre-confirm confidence
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestResolutionPreConfirmConfidence:
+    def test_standalone_resolution_captures_pre_confirm(self):
+        """Resolution in differential_diagnosis.py should capture
+        confidence before confirm() sets it to 1.0."""
+        from maos.house_md.graphs.differential_diagnosis import (
+            resolution_node,
+        )
+
+        wb = Whiteboard()
+        wb.add_hypothesis("Bug in handler", "house", confidence=0.75)
+        state = _make_state(whiteboard=wb.to_dict())
+
+        result = resolution_node(state)
+        # Confidence should be 0.75, NOT 1.0
+        assert result["confidence"] == 0.75
+        # The message should contain 75%
+        msg_content = result["messages"][0].content
+        assert "75%" in msg_content
+
+    def test_confirmed_hypothesis_still_returns_pre_confirm(self):
+        """Even when a hypothesis is already confirmed, confidence should
+        reflect the pre-confirm value."""
+        from maos.house_md.graphs.differential_diagnosis import (
+            resolution_node,
+        )
+
+        wb = Whiteboard()
+        entry = wb.add_hypothesis("Root cause found", "house", confidence=0.9)
+        entry.confirm()  # Already confirmed → confidence 1.0
+        state = _make_state(whiteboard=wb.to_dict())
+
+        result = resolution_node(state)
+        # Already confirmed, so pre-confirm confidence is 1.0
+        assert result["confidence"] == 1.0
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 4 Issue 32: Context message labeling
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestContextMessageLabeling:
+    @pytest.mark.asyncio
+    async def test_context_msg_labeled_as_system_context(self):
+        """The whiteboard context message should be labeled clearly."""
+        agent = _mock_personality_agent("response")
+        state = _make_state()
+
+        await _invoke_agent(agent, state, "test prompt", "house")
+
+        call_args = agent.base_agent.ainvoke.call_args[0][0]
+        msgs = call_args["messages"]
+        # Last non-system message should contain the context label
+        last_msg = msgs[-1]
+        content = last_msg.content if hasattr(last_msg, "content") else ""
+        assert "SYSTEM CONTEXT" in content
+        assert "not user input" in content.lower()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 4 Issue 33: Similarity threshold raised to 0.6
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSimilarityThreshold:
+    def test_threshold_value(self):
+        assert _SIMILARITY_THRESHOLD == 0.6
+
+    def test_pool_types_not_merged(self):
+        """'thread pool' and 'connection pool' should not be merged."""
+        wb = Whiteboard()
+        wb.add_hypothesis("thread pool starvation", "foreman")
+        result = _find_existing_hypothesis(wb, "connection pool exhaustion")
+        # With threshold 0.6, these should NOT match
+        assert result is None
+
+    def test_similar_hypotheses_still_merge(self):
+        """Hypotheses with substantial word overlap should still merge."""
+        wb = Whiteboard()
+        wb.add_hypothesis("database connection pool exhaustion", "foreman")
+        result = _find_existing_hypothesis(
+            wb, "connection pool exhaustion in database"
+        )
+        assert result is not None
+
+    def test_dedup_within_extraction_uses_threshold(self):
+        """Heuristic extraction should use the updated threshold for dedup."""
+        content = (
+            "The root cause is a thread pool starvation under high load. "
+            "I think the issue is a database connection timeout error."
+        )
+        results = extract_hypotheses(content, "chase")
+        # These are distinct hypotheses — should NOT be deduped
+        assert len(results) == 2

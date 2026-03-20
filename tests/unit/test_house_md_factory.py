@@ -117,11 +117,11 @@ class TestExtractContent:
 
     def test_empty_messages(self):
         result = {"messages": []}
-        assert _extract_content(result) == "{'messages': []}"
+        assert _extract_content(result) == "No response generated."
 
     def test_no_messages_key(self):
         result = {"other": "data"}
-        assert _extract_content(result) == "{'other': 'data'}"
+        assert _extract_content(result) == "No response generated."
 
 
 # ── _invoke_agent helper ────────────────────────────────────────────────────

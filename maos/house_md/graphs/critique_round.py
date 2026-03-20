@@ -18,6 +18,9 @@ from maos.house_md.personalities.base import PersonalityWrapper, TeamContext
 
 logger = structlog.get_logger()
 
+# Maximum recent messages forwarded to agents during critique rounds.
+_CRITIQUE_MAX_CONTEXT_MESSAGES = 10
+
 
 async def run_critique_round(
     state: DiagnosticState,
@@ -61,9 +64,19 @@ async def run_critique_round(
             )
 
         critique_prompt = _build_critique_prompt(whiteboard, agent_name)
+
+        # Trim message history to avoid unbounded token growth, mirroring
+        # the trimming logic in _invoke_agent.
+        all_messages = list(state["messages"])
+        max_ctx = _CRITIQUE_MAX_CONTEXT_MESSAGES
+        if len(all_messages) > max_ctx + 1:
+            trimmed = [all_messages[0]] + all_messages[-max_ctx:]
+        else:
+            trimmed = all_messages
+
         critique_state = {
             **state,
-            "messages": list(state["messages"]) + [
+            "messages": trimmed + [
                 HumanMessage(content=critique_prompt),
             ],
         }
@@ -95,6 +108,33 @@ async def run_critique_round(
                     name=agent_name,
                 )
             )
+
+            # Extract challenges/rule-outs and apply counter-evidence
+            challenges = extract_challenges(content, agent_name)
+            for ch in challenges:
+                target = _find_existing_hypothesis(
+                    whiteboard, ch["target"]
+                )
+                if target:
+                    if ch["action"] == "rule_out":
+                        target.rule_out(
+                            f"{agent_name}: {ch.get('reason', 'disproved')}"
+                        )
+                        logger.debug(
+                            "hypothesis_ruled_out",
+                            hypothesis=target.hypothesis,
+                            by=agent_name,
+                        )
+                    else:
+                        target.add_counter_evidence(
+                            f"{agent_name} challenges: "
+                            f"{ch.get('reason', 'disagrees')}"
+                        )
+                        logger.debug(
+                            "hypothesis_challenged",
+                            hypothesis=target.hypothesis,
+                            challenger=agent_name,
+                        )
 
             # Extract hypotheses from agent response and add to whiteboard
             extracted = extract_hypotheses(content, agent_name)
@@ -248,7 +288,9 @@ _STOPWORDS = frozenset({
 })
 
 # Minimum word-overlap ratio to consider two hypotheses the same.
-_SIMILARITY_THRESHOLD = 0.5
+# 0.6 provides better discrimination for domain-specific terms
+# (e.g. "thread pool" vs "connection pool" share only "pool").
+_SIMILARITY_THRESHOLD = 0.6
 
 
 def _tokenize(text: str) -> set[str]:
@@ -290,6 +332,81 @@ def _find_existing_hypothesis(whiteboard: Whiteboard, hypothesis_text: str):
     if best_score >= _SIMILARITY_THRESHOLD:
         return best_entry
     return None
+
+
+def extract_challenges(
+    content: str, agent_name: str
+) -> list[dict[str, Any]]:
+    """Extract challenges and rule-outs from an agent's response.
+
+    Looks for structured markers (``RULE OUT:``, ``CHALLENGE:``) and
+    heuristic patterns indicating disagreement with a hypothesis.
+
+    Returns:
+        List of dicts with keys: target (hypothesis text), action
+        ("challenge" or "rule_out"), reason (optional).
+    """
+    challenges: list[dict[str, Any]] = []
+
+    # Strategy 1: Structured markers
+    rule_out_pattern = re.compile(
+        r"(?:^|\n)\s*(?:[-*\d.)\]]*\s*)?(?:\*{0,2})"
+        r"(?:RULE\s*OUT|Rule\s*out|RULED\s*OUT|Ruled\s*out)"
+        r"(?:\*{0,2})\s*[:]\s*(.+?)(?=\n|$)",
+        re.IGNORECASE,
+    )
+    for match in rule_out_pattern.finditer(content):
+        text = match.group(1).strip().rstrip(".")
+        if text and len(text) > 5:
+            challenges.append({
+                "target": text,
+                "action": "rule_out",
+                "reason": f"Ruled out by {agent_name}",
+            })
+
+    challenge_pattern = re.compile(
+        r"(?:^|\n)\s*(?:[-*\d.)\]]*\s*)?(?:\*{0,2})"
+        r"(?:CHALLENGE|Challenge)"
+        r"(?:\*{0,2})\s*[:]\s*(.+?)(?=\n|$)",
+        re.IGNORECASE,
+    )
+    for match in challenge_pattern.finditer(content):
+        text = match.group(1).strip().rstrip(".")
+        if text and len(text) > 5:
+            challenges.append({
+                "target": text,
+                "action": "challenge",
+                "reason": f"Challenged by {agent_name}",
+            })
+
+    if challenges:
+        return challenges
+
+    # Strategy 2: Heuristic patterns
+    counter_patterns = [
+        (r"(?:rule out|ruled out|can rule out|should rule out)\s+['\"]?(.+?)['\"]?(?:\.|,|$)",
+         "rule_out"),
+        (r"(?:disagree with|against|disproves?|contradicts?|refutes?)\s+['\"]?(.+?)['\"]?(?:\.|,|$)",
+         "challenge"),
+        (r"(?:unlikely|improbable|doesn't explain|does not explain)\s+['\"]?(.+?)['\"]?(?:\.|,|$)",
+         "challenge"),
+    ]
+    for pattern, action in counter_patterns:
+        for match in re.finditer(pattern, content, re.IGNORECASE):
+            text = match.group(1).strip().rstrip(".")
+            if text and 5 < len(text) < 200:
+                if not any(
+                    _hypothesis_similarity(c["target"], text)
+                    >= _SIMILARITY_THRESHOLD
+                    for c in challenges
+                ):
+                    challenges.append({
+                        "target": text,
+                        "action": action,
+                        "reason": f"{agent_name}: {match.group(0).strip()[:100]}",
+                    })
+
+    return challenges
 
 
 def extract_environmental_findings(content: str) -> list[str]:

@@ -192,7 +192,8 @@ class TestResolutionNode:
         result = resolution_node(state)
         assert result["current_phase"] == "resolution"
         assert result["final_diagnosis"] == "Root cause found"
-        assert result["confidence"] == 1.0
+        # Confidence should reflect the pre-confirm value, not 1.0
+        assert result["confidence"] == 0.9
         assert "Root cause found" in result["messages"][0].content
         assert "Chase" in result["messages"][0].content
 

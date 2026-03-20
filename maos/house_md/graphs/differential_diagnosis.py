@@ -285,11 +285,12 @@ def resolution_node(state: DiagnosticState) -> dict[str, Any]:
     diagnosis = confirmed or top
 
     if diagnosis:
-        diagnosis.confirm()
+        # Capture confidence BEFORE confirm() sets it to 1.0
+        pre_confirm_confidence = diagnosis.confidence
         resolution_msg = AIMessage(
             content=(
                 f"[House - Resolution] Diagnosis: {diagnosis.hypothesis}. "
-                f"Confidence: {diagnosis.confidence:.0%}. "
+                f"Confidence: {pre_confirm_confidence:.0%}. "
                 f"Proposed by: {diagnosis.proposer}. "
                 f"Evidence: {', '.join(diagnosis.evidence_for) or 'clinical judgment'}. "
                 f"Chase, implement the fix."
@@ -297,7 +298,8 @@ def resolution_node(state: DiagnosticState) -> dict[str, Any]:
             name="house",
         )
         final_diagnosis = diagnosis.hypothesis
-        confidence = diagnosis.confidence
+        confidence = pre_confirm_confidence
+        diagnosis.confirm()
     else:
         resolution_msg = AIMessage(
             content=(

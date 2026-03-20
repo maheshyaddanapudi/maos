@@ -411,10 +411,12 @@ class HouseMDGraphFactory:
 
             house = personality_agents.get("house")
             if house and diagnosis:
+                # Capture confidence BEFORE confirm() sets it to 1.0
+                pre_confirm_confidence = diagnosis.confidence
                 prompt = (
                     f"Make your final diagnostic call. The top hypothesis "
                     f"is '{diagnosis.hypothesis}' "
-                    f"(confidence: {diagnosis.confidence:.0%}). "
+                    f"(confidence: {pre_confirm_confidence:.0%}). "
                     f"Evidence for: {', '.join(diagnosis.evidence_for) or 'clinical judgment'}. "
                     f"Evidence against: {', '.join(diagnosis.evidence_against) or 'none'}. "
                     f"Deliver the diagnosis and prescribe the treatment."
@@ -428,23 +430,24 @@ class HouseMDGraphFactory:
                     content=f"[House - Resolution] {response_content}",
                     name="house",
                 )
-                if diagnosis:
-                    diagnosis.confirm()
                 final_diagnosis = diagnosis.hypothesis
-                confidence = diagnosis.confidence
-            elif diagnosis:
+                confidence = pre_confirm_confidence
                 diagnosis.confirm()
+            elif diagnosis:
+                # Capture confidence BEFORE confirm() sets it to 1.0
+                pre_confirm_confidence = diagnosis.confidence
                 resolution_msg = AIMessage(
                     content=(
                         f"[House - Resolution] Diagnosis: "
                         f"{diagnosis.hypothesis}. "
-                        f"Confidence: {diagnosis.confidence:.0%}. "
+                        f"Confidence: {pre_confirm_confidence:.0%}. "
                         f"Chase, implement the fix."
                     ),
                     name="house",
                 )
                 final_diagnosis = diagnosis.hypothesis
-                confidence = diagnosis.confidence
+                confidence = pre_confirm_confidence
+                diagnosis.confirm()
             else:
                 resolution_msg = AIMessage(
                     content=(
@@ -534,10 +537,16 @@ class HouseMDGraphFactory:
         return workflow.compile(checkpointer=checkpointer)
 
     def _create_agent_runnables(self) -> dict[str, Any]:
-        """Create LangGraph react agent runnables for each worker."""
+        """Create LangGraph react agent runnables keyed by personality name.
+
+        Maps YAML config agent names to House MD personality keys
+        (house, foreman, cameron, chase, thirteen, wilson, cuddy) so that
+        the rest of the system — graph nodes, critique round, active_team —
+        can look up agents by personality name consistently.
+        """
         from maos.graph.factory import GraphFactory
 
-        runnables = {}
+        runnables: dict[str, Any] = {}
 
         # Create a temporary GraphFactory to reuse tool conversion logic
         graph_factory = GraphFactory(
@@ -546,6 +555,12 @@ class HouseMDGraphFactory:
             llm_factory=self._llm_factory,
             tool_registry=self._tool_registry,
         )
+
+        # Personality slots for workers (house is the supervisor)
+        available_personality_slots = [
+            k for k in PERSONALITY_CONFIGS if k != "house"
+        ]
+        slot_idx = 0
 
         for name, worker in self._agent_registry.get_workers():
             worker_llm_config = self._config.llms.get(
@@ -564,6 +579,20 @@ class HouseMDGraphFactory:
             )
             tools = graph_factory._get_worker_tools(worker.tool_ids)
 
+            # Map config name to personality key.  If the config name
+            # already matches a personality key, use it directly.
+            # Otherwise assign to the next available personality slot.
+            personality_key = name.lower()
+            if personality_key not in PERSONALITY_CONFIGS:
+                if slot_idx < len(available_personality_slots):
+                    personality_key = available_personality_slots[slot_idx]
+                    slot_idx += 1
+                else:
+                    personality_key = name  # fallback for extra workers
+            elif personality_key in available_personality_slots:
+                # Remove from available slots so it won't be double-assigned
+                available_personality_slots.remove(personality_key)
+
             # Note: system_prompt is NOT passed here because
             # PersonalityWrapper.enhance_state() injects personality-enhanced
             # prompts at invocation time. Passing prompt= here would create
@@ -571,12 +600,16 @@ class HouseMDGraphFactory:
             agent = create_react_agent(
                 model=worker_model,
                 tools=tools if tools else [],
-                name=name,
+                name=personality_key,
             )
-            runnables[name] = agent
-            logger.debug("created_house_md_agent", name=name)
+            runnables[personality_key] = agent
+            logger.debug(
+                "created_house_md_agent",
+                config_name=name,
+                personality_key=personality_key,
+            )
 
-        # Also create for supervisor (House) — used in intake/provocation/resolution
+        # Supervisor always maps to "house"
         supervisor = self._agent_registry.get_supervisor()
         if supervisor:
             sup_llm_config = self._config.llms.get(
@@ -589,9 +622,9 @@ class HouseMDGraphFactory:
                 house_agent = create_react_agent(
                     model=sup_model,
                     tools=[],
-                    name=supervisor.name,
+                    name="house",
                 )
-                runnables[supervisor.name] = house_agent
+                runnables["house"] = house_agent
 
         return runnables
 
@@ -672,10 +705,15 @@ async def _invoke_agent(
         trimmed = all_messages
 
     # Include whiteboard summary so agents have full diagnostic context
-    # even when message history is trimmed.
+    # even when message history is trimmed.  Note: we use HumanMessage
+    # because PersonalityWrapper.enhance_state() merges all SystemMessages
+    # into the personality prompt, which would lose positional context.
     wb_summary = whiteboard.summary()
     context_msg = HumanMessage(
-        content=f"[Whiteboard Context]\n{wb_summary}\n\n[Phase Task]\n{phase_prompt}"
+        content=(
+            f"[SYSTEM CONTEXT — not user input]\n{wb_summary}\n\n"
+            f"[Phase Task]\n{phase_prompt}"
+        )
     )
 
     invoke_state = {
@@ -743,4 +781,11 @@ def _extract_content(result: dict[str, Any]) -> str:
                 return msg.content
         if isinstance(msg, dict) and msg.get("role") == "assistant":
             return msg.get("content", "")
-    return str(result)
+    # Fallback: extract any content string rather than dumping the whole dict
+    for msg in reversed(messages):
+        content = getattr(msg, "content", None)
+        if content and isinstance(content, str):
+            return content
+        if isinstance(msg, dict) and msg.get("content"):
+            return msg["content"]
+    return "No response generated."

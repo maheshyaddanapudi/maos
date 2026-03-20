@@ -1,8 +1,8 @@
 """Unit tests for config module."""
 
 import pytest
-import yaml
 
+from maos.config.loader import ConfigLoader
 from maos.config.models import (
     AgentConfig,
     AgentKind,
@@ -10,13 +10,8 @@ from maos.config.models import (
     GraphConfig,
     LLMConfig,
     LLMProvider,
-    MCPServerConfig,
-    ServingConfig,
     SkillConfig,
-    SkillsetConfig,
-    ToolConfig,
 )
-from maos.config.loader import ConfigLoader
 
 
 class TestLLMConfig:

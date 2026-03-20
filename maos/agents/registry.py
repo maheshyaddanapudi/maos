@@ -1,12 +1,12 @@
 """Registry for agents."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import structlog
 
-from maos.config.models import AgentConfig, AgentKind, Config
-from maos.agents.models import Agent, WorkerAgent, SupervisorAgent, ExternalAgent
 from maos.agents.factory import AgentFactory
+from maos.agents.models import Agent, ExternalAgent, SupervisorAgent, WorkerAgent
+from maos.config.models import AgentConfig, AgentKind, Config
 
 logger = structlog.get_logger()
 
@@ -44,13 +44,13 @@ class AgentRegistry:
             factory: Agent factory for creating agents.
         """
         self._factory = factory
-        self._supervisor: Optional[SupervisorAgent] = None
-        self._workers: Dict[str, WorkerAgent] = {}
-        self._externals: Dict[str, ExternalAgent] = {}
+        self._supervisor: SupervisorAgent | None = None
+        self._workers: dict[str, WorkerAgent] = {}
+        self._externals: dict[str, ExternalAgent] = {}
         # Managed external agents (started with the app)
-        self._managed_externals: Dict[str, ManagedExternalAgent] = {}
+        self._managed_externals: dict[str, ManagedExternalAgent] = {}
         # Configs for external agents to be started
-        self._external_configs: Dict[str, AgentConfig] = {}
+        self._external_configs: dict[str, AgentConfig] = {}
 
     def build(self, config: Config) -> None:
         """
@@ -99,7 +99,7 @@ class AgentRegistry:
             external_configs=len(self._external_configs)
         )
 
-    def get_external_configs(self) -> Dict[str, AgentConfig]:
+    def get_external_configs(self) -> dict[str, AgentConfig]:
         """Get configs for external agents that need to be started."""
         return self._external_configs
 
@@ -138,7 +138,7 @@ class AgentRegistry:
             port=server.port
         )
 
-    def get_managed_externals(self) -> List[ManagedExternalAgent]:
+    def get_managed_externals(self) -> list[ManagedExternalAgent]:
         """Get all managed external agents."""
         return list(self._managed_externals.values())
 
@@ -161,19 +161,19 @@ class AgentRegistry:
             mode=agent.import_mode
         )
 
-    def get_supervisor(self) -> Optional[SupervisorAgent]:
+    def get_supervisor(self) -> SupervisorAgent | None:
         """Get the supervisor agent."""
         return self._supervisor
 
-    def get_worker(self, name: str) -> Optional[WorkerAgent]:
+    def get_worker(self, name: str) -> WorkerAgent | None:
         """Get a worker by name."""
         return self._workers.get(name)
 
-    def get_external(self, name: str) -> Optional[ExternalAgent]:
+    def get_external(self, name: str) -> ExternalAgent | None:
         """Get an external agent by name."""
         return self._externals.get(name)
 
-    def get_agent(self, name: str) -> Optional[Agent]:
+    def get_agent(self, name: str) -> Agent | None:
         """
         Get any agent by name.
 
@@ -191,15 +191,15 @@ class AgentRegistry:
                 return ext
         return None
 
-    def get_workers(self) -> List[Tuple[str, WorkerAgent]]:
+    def get_workers(self) -> list[tuple[str, WorkerAgent]]:
         """Get all workers as (name, agent) pairs."""
         return list(self._workers.items())
 
-    def get_externals(self) -> List[Tuple[str, ExternalAgent]]:
+    def get_externals(self) -> list[tuple[str, ExternalAgent]]:
         """Get all externals as (name, agent) pairs."""
         return list(self._externals.items())
 
-    def get_roster(self) -> List[str]:
+    def get_roster(self) -> list[str]:
         """Get the full roster for the supervisor."""
         roster = list(self._workers.keys())
         for ext in self._externals.values():
@@ -207,11 +207,11 @@ class AgentRegistry:
                 roster.append(ext.node_id)
         return roster
 
-    def list_worker_names(self) -> List[str]:
+    def list_worker_names(self) -> list[str]:
         """List all worker names."""
         return list(self._workers.keys())
 
-    def list_external_names(self) -> List[str]:
+    def list_external_names(self) -> list[str]:
         """List all external agent names."""
         return list(self._externals.keys())
 

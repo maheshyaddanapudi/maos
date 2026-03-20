@@ -1,7 +1,7 @@
 """A2A protocol data models."""
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -28,8 +28,8 @@ class AgentSkill(BaseModel):
     id: str
     name: str
     description: str = ""
-    tags: List[str] = Field(default_factory=list)
-    examples: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    examples: list[str] = Field(default_factory=list)
 
 
 class ServiceInterface(BaseModel):
@@ -44,41 +44,41 @@ class AgentCard(BaseModel):
     description: str = ""
     version: str = "1.0.0"
     protocol_version: str = Field(default="1.0", alias="protocolVersion")
-    supported_interfaces: List[ServiceInterface] = Field(
+    supported_interfaces: list[ServiceInterface] = Field(
         default_factory=list,
         alias="supportedInterfaces"
     )
     capabilities: AgentCapabilities = Field(default_factory=AgentCapabilities)
-    default_input_modes: List[str] = Field(
+    default_input_modes: list[str] = Field(
         default=["text/plain"],
         alias="defaultInputModes"
     )
-    default_output_modes: List[str] = Field(
+    default_output_modes: list[str] = Field(
         default=["text/plain"],
         alias="defaultOutputModes"
     )
-    skills: List[AgentSkill] = Field(default_factory=list)
+    skills: list[AgentSkill] = Field(default_factory=list)
 
     # Source URL (not from JSON)
-    url: Optional[str] = None
+    url: str | None = None
 
     class Config:
         populate_by_name = True
 
     @property
-    def endpoint(self) -> Optional[str]:
+    def endpoint(self) -> str | None:
         """Get primary endpoint URL."""
         if self.supported_interfaces:
             return self.supported_interfaces[0].url
         return None
 
     @property
-    def skill_names(self) -> List[str]:
+    def skill_names(self) -> list[str]:
         """Get list of skill names."""
         return [skill.name for skill in self.skills]
 
     @property
-    def all_tags(self) -> List[str]:
+    def all_tags(self) -> list[str]:
         """Get all unique tags across skills."""
         tags = set()
         for skill in self.skills:
@@ -92,21 +92,21 @@ class DiscoveredAgent(BaseModel):
     source_url: str
     endpoint: str
     import_mode: str = "node"  # "node" or "tool"
-    assigned_to: Optional[str] = None  # Worker name for tools_only mode
+    assigned_to: str | None = None  # Worker name for tools_only mode
 
 
 class MessagePart(BaseModel):
     """A part of an A2A message."""
     type: str  # "text", "data", "file"
-    text: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
-    mime_type: Optional[str] = None
+    text: str | None = None
+    data: dict[str, Any] | None = None
+    mime_type: str | None = None
 
 
 class A2AMessage(BaseModel):
     """An A2A protocol message."""
     role: str  # "user", "agent"
-    parts: List[MessagePart] = Field(default_factory=list)
+    parts: list[MessagePart] = Field(default_factory=list)
 
     @classmethod
     def from_text(cls, role: str, text: str) -> "A2AMessage":
@@ -123,7 +123,7 @@ class A2AConfiguration(BaseModel):
     """Configuration for an A2A request."""
     timeout: int = 40
     stream: bool = False
-    accepted_output_modes: List[str] = Field(default=["text/plain"])
+    accepted_output_modes: list[str] = Field(default=["text/plain"])
 
 
 class A2AParams(BaseModel):
@@ -144,8 +144,8 @@ class A2ATask(BaseModel):
     """An A2A task with status and result."""
     id: str
     status: TaskStatus
-    result: Optional[A2AMessage] = None
-    error: Optional[str] = None
+    result: A2AMessage | None = None
+    error: str | None = None
 
 
 class A2AResult(BaseModel):
@@ -157,15 +157,15 @@ class A2AError(BaseModel):
     """A2A JSON-RPC error."""
     code: int
     message: str
-    data: Optional[Any] = None
+    data: Any | None = None
 
 
 class A2AResponse(BaseModel):
     """A2A JSON-RPC 2.0 response."""
     jsonrpc: str = "2.0"
     id: str
-    result: Optional[A2AResult] = None
-    error: Optional[A2AError] = None
+    result: A2AResult | None = None
+    error: A2AError | None = None
 
     @property
     def is_success(self) -> bool:
@@ -180,7 +180,7 @@ class A2AResponse(BaseModel):
             self.result.task.status == TaskStatus.COMPLETED
         )
 
-    def get_content(self) -> Optional[str]:
+    def get_content(self) -> str | None:
         """Extract text content from successful response."""
         if self.result and self.result.task.result:
             return self.result.task.result.get_text()
@@ -190,5 +190,5 @@ class A2AResponse(BaseModel):
 class HostIndex(BaseModel):
     """A2A host index listing multiple agents."""
     version: str = "1.0"
-    host: Optional[Dict[str, str]] = None
-    agents: List[Dict[str, Any]] = Field(default_factory=list)
+    host: dict[str, str] | None = None
+    agents: list[dict[str, Any]] = Field(default_factory=list)

@@ -1,7 +1,7 @@
 """Integration tests for graph module."""
 
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from maos.config.models import (
     AgentConfig,
@@ -11,9 +11,8 @@ from maos.config.models import (
     LLMConfig,
     LLMProvider,
 )
-from maos.llm.registry import LLMRegistry
 from maos.graph.state import create_initial_state
-
+from maos.llm.registry import LLMRegistry
 from tests.mocks.llm import MockLLMAdapter, MockSupervisorLLM
 
 

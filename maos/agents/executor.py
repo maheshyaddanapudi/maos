@@ -5,17 +5,18 @@ and external A2A agents implement, enabling a unified execution model.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
 class AgentInput:
     """Input to an agent execution."""
     task: str
-    context: Optional[Dict[str, Any]] = None
-    thread_id: Optional[str] = None
-    timeout_seconds: Optional[int] = None
+    context: dict[str, Any] | None = None
+    thread_id: str | None = None
+    timeout_seconds: int | None = None
 
 
 @dataclass
@@ -23,9 +24,9 @@ class AgentOutput:
     """Output from an agent execution."""
     content: str
     success: bool = True
-    error: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    tool_calls: Optional[List[Dict[str, Any]]] = None
+    error: str | None = None
+    metadata: dict[str, Any] | None = None
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 @runtime_checkable

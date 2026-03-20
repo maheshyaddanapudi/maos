@@ -1,11 +1,11 @@
 """A2A host server for multiple agents."""
 
-from typing import Any, Callable, Dict
-
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from collections.abc import Callable
+from typing import Any
 
 import structlog
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 logger = structlog.get_logger()
 
@@ -23,7 +23,7 @@ class A2AHostServer:
         """
         self._host = host
         self._port = port
-        self._agents: Dict[str, "A2AAgentHandler"] = {}
+        self._agents: dict[str, A2AAgentHandler] = {}
         self._app = FastAPI(title="A2A Host")
 
         self._setup_routes()
@@ -70,7 +70,7 @@ class A2AHostServer:
         self._agents[name] = handler
         logger.info("registered_a2a_agent", name=name)
 
-    def get_index(self) -> Dict[str, Any]:
+    def get_index(self) -> dict[str, Any]:
         """Get host index listing all agents."""
         return {
             "version": "1.0",
@@ -114,7 +114,7 @@ class A2AAgentHandler:
         self,
         name: str,
         description: str,
-        handler_fn: Callable[[Dict], Any]
+        handler_fn: Callable[[dict], Any]
     ):
         """
         Initialize the agent handler.
@@ -137,7 +137,7 @@ class A2AAgentHandler:
             "description": description
         })
 
-    def get_card(self) -> Dict[str, Any]:
+    def get_card(self) -> dict[str, Any]:
         """Get the agent card."""
         return {
             "protocolVersion": "1.0",
@@ -158,6 +158,6 @@ class A2AAgentHandler:
         """Get agent description."""
         return self._description
 
-    async def handle_request(self, request: Dict) -> Dict:
+    async def handle_request(self, request: dict) -> dict:
         """Handle an A2A request."""
         return await self._handler_fn(request)

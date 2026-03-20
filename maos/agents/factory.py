@@ -1,15 +1,14 @@
 """Factory for creating agents."""
 
-from typing import List, Optional
 
 import structlog
 
+from maos.agents.models import Agent, SupervisorAgent, WorkerAgent
 from maos.config.models import AgentConfig, AgentKind
 from maos.llm.registry import LLMRegistry
-from maos.skills.registry import SkillsetRegistry, SkillRegistry
-from maos.tools.registry import ToolRegistry
+from maos.skills.registry import SkillRegistry, SkillsetRegistry
 from maos.tools.models import Tool
-from maos.agents.models import Agent, WorkerAgent, SupervisorAgent
+from maos.tools.registry import ToolRegistry
 
 logger = structlog.get_logger()
 
@@ -89,7 +88,7 @@ class AgentFactory:
 
         return worker
 
-    def create(self, name: str, config: AgentConfig, roster: Optional[List[str]] = None) -> Agent:
+    def create(self, name: str, config: AgentConfig, roster: list[str] | None = None) -> Agent:
         """
         Create an agent based on its kind.
 
@@ -120,7 +119,7 @@ class AgentFactory:
         self,
         name: str,
         config: AgentConfig,
-        roster: List[str]
+        roster: list[str]
     ) -> SupervisorAgent:
         """
         Create the supervisor agent.
@@ -159,7 +158,7 @@ class AgentFactory:
 
         return supervisor
 
-    def get_tools_for_worker(self, worker: WorkerAgent) -> List[Tool]:
+    def get_tools_for_worker(self, worker: WorkerAgent) -> list[Tool]:
         """
         Get all tools for a worker agent.
 

@@ -1,7 +1,8 @@
 """LangChain-based LLM adapters using official provider packages."""
 
 import os
-from typing import Any, AsyncIterator, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -11,7 +12,6 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from langchain_core.tools import BaseTool
 
 from maos.config.models import LLMConfig, LLMProvider
 from maos.llm.base import (
@@ -24,7 +24,7 @@ from maos.llm.base import (
 )
 
 
-def _to_langchain_messages(messages: List[Message]) -> List[BaseMessage]:
+def _to_langchain_messages(messages: list[Message]) -> list[BaseMessage]:
     """Convert our Message format to LangChain messages."""
     result = []
     for msg in messages:
@@ -55,7 +55,7 @@ def _to_langchain_messages(messages: List[Message]) -> List[BaseMessage]:
     return result
 
 
-def _to_langchain_tools(tools: List[ToolDefinition]) -> List[dict]:
+def _to_langchain_tools(tools: list[ToolDefinition]) -> list[dict]:
     """Convert our ToolDefinition format to LangChain tool format."""
     return [
         {
@@ -86,8 +86,8 @@ class LangChainAdapter(LLMAdapter):
 
     async def invoke(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
         **kwargs: Any
     ) -> LLMResponse:
         """Invoke the LangChain model."""
@@ -130,8 +130,8 @@ class LangChainAdapter(LLMAdapter):
 
     async def stream(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
         **kwargs: Any
     ) -> AsyncIterator[LLMChunk]:
         """Stream the LangChain model response."""

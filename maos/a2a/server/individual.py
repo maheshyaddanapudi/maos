@@ -1,11 +1,10 @@
 """A2A individual agent server."""
 
-from typing import Any, Callable, Dict, List
-
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from collections.abc import Callable
+from typing import Any
 
 import structlog
+from fastapi import FastAPI, Request
 
 logger = structlog.get_logger()
 
@@ -17,10 +16,10 @@ class A2AIndividualServer:
         self,
         name: str,
         description: str,
-        handler_fn: Callable[[Dict], Any],
+        handler_fn: Callable[[dict], Any],
         host: str = "0.0.0.0",
         port: int = 9010,
-        skills: List[Dict[str, str]] = None
+        skills: list[dict[str, str]] = None
     ):
         """
         Initialize the individual agent server.
@@ -57,7 +56,7 @@ class A2AIndividualServer:
             body = await request.json()
             return await self._handle_request(body)
 
-    def _get_card(self) -> Dict[str, Any]:
+    def _get_card(self) -> dict[str, Any]:
         """Get the agent card."""
         return {
             "protocolVersion": "1.0",
@@ -80,7 +79,7 @@ class A2AIndividualServer:
             "skills": self._skills
         }
 
-    async def _handle_request(self, request: Dict) -> Dict:
+    async def _handle_request(self, request: dict) -> dict:
         """Handle an A2A request."""
         request_id = request.get("id", "unknown")
         method = request.get("method", "")

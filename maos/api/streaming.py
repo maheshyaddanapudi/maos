@@ -1,9 +1,10 @@
 """SSE streaming helpers for the API."""
 
-import json
 import asyncio
-from typing import Any, AsyncIterator, Dict, Optional
+import json
+from collections.abc import AsyncIterator
 from datetime import datetime
+from typing import Any
 
 import structlog
 
@@ -12,7 +13,7 @@ from maos.api.models import StreamEvent, StreamEventType
 logger = structlog.get_logger()
 
 
-def format_sse_event(event_type: str, data: Dict[str, Any]) -> str:
+def format_sse_event(event_type: str, data: dict[str, Any]) -> str:
     """
     Format an event for Server-Sent Events.
 
@@ -29,7 +30,7 @@ def format_sse_event(event_type: str, data: Dict[str, Any]) -> str:
 
 def create_stream_event(
     event_type: StreamEventType,
-    data: Dict[str, Any]
+    data: dict[str, Any]
 ) -> StreamEvent:
     """
     Create a stream event.
@@ -50,8 +51,8 @@ def create_stream_event(
 
 async def stream_graph_events(
     graph,
-    initial_state: Dict[str, Any],
-    config: Dict[str, Any]
+    initial_state: dict[str, Any],
+    config: dict[str, Any]
 ) -> AsyncIterator[str]:
     """
     Stream events from graph execution.
@@ -208,9 +209,9 @@ class OpenAIStreamFormatter:
 
     def format_chunk(
         self,
-        content: Optional[str] = None,
-        role: Optional[str] = None,
-        finish_reason: Optional[str] = None
+        content: str | None = None,
+        role: str | None = None,
+        finish_reason: str | None = None
     ) -> str:
         """Format a chunk in OpenAI streaming format."""
         delta = {}
@@ -240,8 +241,8 @@ class OpenAIStreamFormatter:
 
 async def stream_openai_response(
     graph,
-    initial_state: Dict[str, Any],
-    config: Dict[str, Any],
+    initial_state: dict[str, Any],
+    config: dict[str, Any],
     model: str = "maos"
 ) -> AsyncIterator[str]:
     """
@@ -297,7 +298,7 @@ async def stream_openai_response(
 
 async def stream_openai_response_with_interrupt(
     graph,
-    config: Dict[str, Any],
+    config: dict[str, Any],
     roster: list,
     messages: list,
     is_resuming: bool,
@@ -326,6 +327,7 @@ async def stream_openai_response_with_interrupt(
         OpenAI-formatted stream strings.
     """
     from langgraph.types import Command
+
     from maos.graph.state import create_initial_state
 
     formatter = OpenAIStreamFormatter(model=model)
@@ -404,7 +406,7 @@ async def stream_openai_response_with_interrupt(
         yield formatter.format_done()
 
 
-def _extract_stream_content(event: Dict[str, Any]) -> Optional[str]:
+def _extract_stream_content(event: dict[str, Any]) -> str | None:
     """Extract content from a stream event."""
     event_name = event.get("event", "")
     event_data = event.get("data", {})
@@ -428,7 +430,7 @@ def _extract_stream_content(event: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _extract_interrupt_from_state(state) -> Optional[str]:
+def _extract_interrupt_from_state(state) -> str | None:
     """Extract interrupt message from graph state."""
     tasks = getattr(state, 'tasks', [])
     if tasks and hasattr(tasks[0], 'interrupts') and tasks[0].interrupts:

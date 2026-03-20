@@ -1,18 +1,13 @@
 """Unit tests for API module."""
 
-import pytest
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi.testclient import TestClient
+import pytest
 
 from maos.api.models import (
     AgentInfo,
-    AgentListResponse,
     ChatRequest,
     ChatResponse,
     ComponentHealth,
-    ErrorResponse,
     HealthResponse,
     HealthStatus,
     InputRequiredResponse,
@@ -22,11 +17,10 @@ from maos.api.models import (
     OpenAIChatResponse,
     OpenAIMessage,
     ResumeRequest,
-    StreamEvent,
     StreamEventType,
     WorkerResultInfo,
 )
-from maos.api.streaming import format_sse_event, create_stream_event
+from maos.api.streaming import create_stream_event, format_sse_event
 
 
 class TestMessage:

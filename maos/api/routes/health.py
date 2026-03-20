@@ -1,10 +1,10 @@
 """Health check endpoint."""
 
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
-from fastapi import APIRouter, Depends
 import structlog
+from fastapi import APIRouter, Depends
 
 from maos.api.models import (
     ComponentHealth,
@@ -17,14 +17,14 @@ logger = structlog.get_logger()
 router = APIRouter(tags=["health"])
 
 
-def get_app_context() -> Dict[str, Any]:
+def get_app_context() -> dict[str, Any]:
     """Get application context - to be overridden by dependency injection."""
     return {}
 
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check(
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ) -> HealthResponse:
     """
     Check the health of the MAOS system.
@@ -133,8 +133,8 @@ async def health_check(
 
 @router.get("/ready")
 async def readiness_check(
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, Any]:
+    context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, Any]:
     """
     Quick readiness check for load balancers.
 
@@ -149,7 +149,7 @@ async def readiness_check(
 
 
 @router.get("/live")
-async def liveness_check() -> Dict[str, Any]:
+async def liveness_check() -> dict[str, Any]:
     """
     Quick liveness check.
 

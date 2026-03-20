@@ -1,6 +1,5 @@
 """Registry for LLM adapters."""
 
-from typing import Dict, List, Optional
 
 from maos.config.models import LLMConfig
 from maos.llm.base import LLMAdapter
@@ -10,17 +9,17 @@ from maos.llm.factory import LLMFactory
 class LLMRegistry:
     """Registry for LLM adapters."""
 
-    def __init__(self, factory: Optional[LLMFactory] = None):
+    def __init__(self, factory: LLMFactory | None = None):
         """
         Initialize the LLM registry.
 
         Args:
             factory: LLM factory to use. Creates default if not provided.
         """
-        self._adapters: Dict[str, LLMAdapter] = {}
+        self._adapters: dict[str, LLMAdapter] = {}
         self._factory = factory or LLMFactory()
 
-    def build(self, llm_configs: Dict[str, LLMConfig]) -> None:
+    def build(self, llm_configs: dict[str, LLMConfig]) -> None:
         """
         Build the registry from configuration.
 
@@ -51,7 +50,7 @@ class LLMRegistry:
         """
         self._adapters[name] = adapter
 
-    def get(self, name: str) -> Optional[LLMAdapter]:
+    def get(self, name: str) -> LLMAdapter | None:
         """
         Get an LLM adapter by name.
 
@@ -93,7 +92,7 @@ class LLMRegistry:
         """
         return self.get_or_raise("default")
 
-    def get_or_default(self, name: Optional[str] = None) -> LLMAdapter:
+    def get_or_default(self, name: str | None = None) -> LLMAdapter:
         """
         Get an adapter by name, falling back to default.
 
@@ -112,7 +111,7 @@ class LLMRegistry:
             return self._adapters["default"]
         raise KeyError(f"LLM adapter '{name}' not found and no default configured")
 
-    def list(self) -> List[str]:
+    def list(self) -> list[str]:
         """
         List all registered adapter names.
 

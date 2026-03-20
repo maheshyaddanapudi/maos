@@ -12,8 +12,9 @@ Run with: ANTHROPIC_API_KEY=sk-... pytest tests/e2e/test_full_stack_e2e.py -v -s
 """
 
 import os
-import pytest
 from pathlib import Path
+
+import pytest
 
 # Skip all tests if API key not available
 pytestmark = pytest.mark.skipif(
@@ -162,7 +163,7 @@ class TestSingleAgentToolUsage:
         result = await graph.ainvoke(state, {"configurable": {"thread_id": "test-math"}})
 
         response = "".join(str(m.content) for m in result.get("messages", []) if hasattr(m, "content"))
-        assert "117" in response, f"Expected '117' in response"
+        assert "117" in response, "Expected '117' in response"
 
     @pytest.mark.asyncio
     async def test_file_reading(self, maos_system):
@@ -634,7 +635,7 @@ class TestTitleEndpointViaSupervisor:
                     title = content
                     break
 
-        print(f"\n--- Title Endpoint Test ---")
+        print("\n--- Title Endpoint Test ---")
         print(f"Conversation: {conversation_summary[:100]}...")
         print(f"Generated Title: {title}")
 
@@ -711,7 +712,7 @@ class TestTitleEndpointViaSupervisor:
         title1 = extract_title(result1)
         title2 = extract_title(result2)
 
-        print(f"\n--- Routing Comparison ---")
+        print("\n--- Routing Comparison ---")
         print(f"Natural language title: {title1[:100]}...")
         print(f"Endpoint style title: {title2[:100]}...")
 

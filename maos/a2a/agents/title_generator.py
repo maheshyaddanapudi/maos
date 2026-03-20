@@ -5,7 +5,7 @@ the conversation content. It's typically used by UI clients to
 generate thread titles after the first exchange.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
 
@@ -52,9 +52,9 @@ Examples:
         name: str = "title_generator",
         description: str = "Generates concise titles for conversations",
         host: str = "127.0.0.1",
-        port: Optional[int] = None,
-        llm_adapter: Optional[Any] = None,
-        system_prompt: Optional[str] = None,
+        port: int | None = None,
+        llm_adapter: Any | None = None,
+        system_prompt: str | None = None,
     ):
         """
         Initialize the title generator agent.
@@ -82,7 +82,7 @@ Examples:
         """Set the LLM adapter after initialization."""
         self._llm = llm_adapter
 
-    async def _process(self, task: str, context: Optional[Dict[str, Any]] = None) -> str:
+    async def _process(self, task: str, context: dict[str, Any] | None = None) -> str:
         """
         Generate a title for the given conversation content.
 
@@ -143,8 +143,8 @@ class TitleGeneratorFactory:
 
     @staticmethod
     def create(
-        config: Dict[str, Any],
-        llm_adapter: Optional[Any] = None
+        config: dict[str, Any],
+        llm_adapter: Any | None = None
     ) -> TitleGeneratorAgent:
         """
         Create a TitleGeneratorAgent from configuration.

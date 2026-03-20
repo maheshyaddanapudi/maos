@@ -1,14 +1,23 @@
 """FastAPI server factory for MAOS."""
 
+from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
-from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import structlog
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from maos.api.routes import (
+    agents,
+    chat,
+    conversations,
+    health,
+    langgraph_studio,
+    openai_compat,
+    tasks,
+)
 from maos.config.models import Config, ServingConfig
-from maos.api.routes import health, agents, chat, openai_compat, tasks, langgraph_studio, conversations
 
 logger = structlog.get_logger()
 
@@ -21,7 +30,7 @@ class AppContext:
     """
 
     def __init__(self):
-        self.config: Optional[Config] = None
+        self.config: Config | None = None
         self.llm_registry = None
         self.mcp_registry = None
         self.tool_registry = None
@@ -32,7 +41,7 @@ class AppContext:
         self.checkpointer = None
         self.conversation_store = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for route handlers."""
         return {
             "config": self.config,
@@ -52,15 +61,15 @@ class AppContext:
 _app_context = AppContext()
 
 
-def get_app_context() -> Dict[str, Any]:
+def get_app_context() -> dict[str, Any]:
     """Dependency for getting app context in routes."""
     return _app_context.to_dict()
 
 
 def create_app(
-    config: Optional[Config] = None,
-    serving_config: Optional[ServingConfig] = None,
-    lifespan: Optional[Callable] = None
+    config: Config | None = None,
+    serving_config: ServingConfig | None = None,
+    lifespan: Callable | None = None
 ) -> FastAPI:
     """
     Create the FastAPI application.

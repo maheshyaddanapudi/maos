@@ -4,12 +4,10 @@ This module uses the official Anthropic MCP SDK for server connections,
 providing proper protocol handling and session management.
 """
 
-import asyncio
 from contextlib import AsyncExitStack
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
-
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -26,18 +24,18 @@ class MCPServerConnection:
         self,
         name: str,
         session: ClientSession,
-        tools: List[MCPToolDefinition]
+        tools: list[MCPToolDefinition]
     ):
         self.name = name
         self._session = session
         self._tools = tools
 
     @property
-    def tools(self) -> List[MCPToolDefinition]:
+    def tools(self) -> list[MCPToolDefinition]:
         """Get available tools."""
         return self._tools
 
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
         Call a tool on this server.
 
@@ -75,9 +73,9 @@ class MCPRegistry:
 
     def __init__(self):
         """Initialize the MCP registry."""
-        self._connections: Dict[str, MCPServerConnection] = {}
-        self._exit_stack: Optional[AsyncExitStack] = None
-        self._configs: Dict[str, MCPServerConfig] = {}
+        self._connections: dict[str, MCPServerConnection] = {}
+        self._exit_stack: AsyncExitStack | None = None
+        self._configs: dict[str, MCPServerConfig] = {}
 
     async def register(self, name: str, config: MCPServerConfig) -> None:
         """
@@ -159,11 +157,11 @@ class MCPRegistry:
             tools_count=len(tools)
         )
 
-    def get_connection(self, name: str) -> Optional[MCPServerConnection]:
+    def get_connection(self, name: str) -> MCPServerConnection | None:
         """Get a connection by server name."""
         return self._connections.get(name)
 
-    def get_all_tools(self) -> List[MCPToolDefinition]:
+    def get_all_tools(self) -> list[MCPToolDefinition]:
         """Get all tools from all connected servers."""
         tools = []
         for connection in self._connections.values():
@@ -174,7 +172,7 @@ class MCPRegistry:
         self,
         server_name: str,
         tool_name: str,
-        arguments: Dict[str, Any]
+        arguments: dict[str, Any]
     ) -> Any:
         """
         Call a tool on a specific server.
@@ -203,7 +201,7 @@ class MCPRegistry:
         self._connections.clear()
         logger.info("disconnected_all_mcp_servers")
 
-    def list(self) -> List[str]:
+    def list(self) -> list[str]:
         """List all connected server names."""
         return list(self._connections.keys())
 

@@ -7,7 +7,7 @@ discovered and called by the supervisor via the A2A protocol.
 import asyncio
 import socket
 from abc import abstractmethod
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request
@@ -42,8 +42,8 @@ class ExternalAgentServer(BaseAgentExecutor):
         name: str,
         description: str = "",
         host: str = "127.0.0.1",
-        port: Optional[int] = None,
-        skills: Optional[List[Dict[str, str]]] = None,
+        port: int | None = None,
+        skills: list[dict[str, str]] | None = None,
     ):
         """
         Initialize the external agent server.
@@ -59,8 +59,8 @@ class ExternalAgentServer(BaseAgentExecutor):
         self._host = host
         self._port = port or find_free_port()
         self._skills = skills or []
-        self._app: Optional[FastAPI] = None
-        self._server_task: Optional[asyncio.Task] = None
+        self._app: FastAPI | None = None
+        self._server_task: asyncio.Task | None = None
         self._running = False
 
     @property
@@ -79,7 +79,7 @@ class ExternalAgentServer(BaseAgentExecutor):
         return f"http://{self._host}:{self._port}/.well-known/agent.json"
 
     @abstractmethod
-    async def _process(self, task: str, context: Optional[Dict[str, Any]] = None) -> str:
+    async def _process(self, task: str, context: dict[str, Any] | None = None) -> str:
         """
         Process a task and return the result.
 
@@ -124,7 +124,7 @@ class ExternalAgentServer(BaseAgentExecutor):
 
         return app
 
-    def _get_agent_card(self) -> Dict[str, Any]:
+    def _get_agent_card(self) -> dict[str, Any]:
         """Generate the A2A agent card."""
         return {
             "protocolVersion": "1.0",
@@ -147,7 +147,7 @@ class ExternalAgentServer(BaseAgentExecutor):
             "skills": self._skills
         }
 
-    async def _handle_a2a_request(self, request: Dict) -> Dict:
+    async def _handle_a2a_request(self, request: dict) -> dict:
         """Handle an A2A JSON-RPC request."""
         request_id = request.get("id", "unknown")
         method = request.get("method", "")
@@ -272,7 +272,7 @@ class ExternalAgentServer(BaseAgentExecutor):
         logger.info("stopped_external_agent", name=self.name)
 
     @property
-    def app(self) -> Optional[FastAPI]:
+    def app(self) -> FastAPI | None:
         """Get the FastAPI app (for testing)."""
         if self._app is None:
             self._app = self._create_app()

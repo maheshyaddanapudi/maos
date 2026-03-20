@@ -10,7 +10,7 @@ A config-driven multi-agent orchestration system combining:
 
 __version__ = "0.1.0"
 
-from maos.main import main, initialize_system, shutdown_system
+from maos.main import initialize_system, main, shutdown_system
 
 __all__ = [
     "__version__",

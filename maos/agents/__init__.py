@@ -1,7 +1,7 @@
 """Agent management module for MAOS."""
 
-from maos.agents.models import Agent, WorkerAgent, SupervisorAgent
 from maos.agents.factory import AgentFactory
+from maos.agents.models import Agent, SupervisorAgent, WorkerAgent
 from maos.agents.registry import AgentRegistry
 
 __all__ = [

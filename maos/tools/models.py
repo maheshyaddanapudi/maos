@@ -1,6 +1,7 @@
 """Tool data models."""
 
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -8,9 +9,9 @@ from pydantic import BaseModel, Field
 class JsonSchema(BaseModel):
     """JSON Schema for tool input validation."""
     type: str = "object"
-    properties: Dict[str, Any] = Field(default_factory=dict)
-    required: List[str] = Field(default_factory=list)
-    description: Optional[str] = None
+    properties: dict[str, Any] = Field(default_factory=dict)
+    required: list[str] = Field(default_factory=list)
+    description: str | None = None
 
 
 class Tool(BaseModel):
@@ -24,7 +25,7 @@ class Tool(BaseModel):
     timeout_seconds: int = 30
 
     # Runtime handle (not serialized)
-    _invoke_fn: Optional[Callable] = None
+    _invoke_fn: Callable | None = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -34,7 +35,7 @@ class Tool(BaseModel):
         """Set the invocation function."""
         self._invoke_fn = fn
 
-    async def call(self, arguments: Dict[str, Any]) -> Any:
+    async def call(self, arguments: dict[str, Any]) -> Any:
         """
         Invoke the tool with given arguments.
 
@@ -51,7 +52,7 @@ class Tool(BaseModel):
             raise RuntimeError(f"Tool {self.id} not connected")
         return await self._invoke_fn(arguments)
 
-    def to_llm_definition(self) -> Dict[str, Any]:
+    def to_llm_definition(self) -> dict[str, Any]:
         """Convert to LLM tool definition format."""
         return {
             "name": self.id,
@@ -64,15 +65,15 @@ class ToolCall(BaseModel):
     """A call to a tool."""
     id: str
     tool_id: str
-    arguments: Dict[str, Any]
+    arguments: dict[str, Any]
 
 
 class ToolResult(BaseModel):
     """Result of a tool invocation."""
     tool_id: str
     tool_name: str
-    input_args: Dict[str, Any]
+    input_args: dict[str, Any]
     output: Any
     success: bool = True
-    error_message: Optional[str] = None
+    error_message: str | None = None
     duration_ms: int = 0

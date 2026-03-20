@@ -1,10 +1,10 @@
 """LangGraph state schema and related models."""
 
 from enum import Enum
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
 from langgraph.graph.message import add_messages
+from pydantic import BaseModel, Field
 
 
 class ResultType(str, Enum):
@@ -19,10 +19,10 @@ class ToolCallRecord(BaseModel):
     """Record of a tool invocation during worker execution."""
     tool_id: str
     tool_name: str
-    input_args: Dict[str, Any]
+    input_args: dict[str, Any]
     output: Any
     success: bool = True
-    error_message: Optional[str] = None
+    error_message: str | None = None
     duration_ms: int = 0
 
 
@@ -30,17 +30,17 @@ class ResultOutput(BaseModel):
     """Structured output from worker execution."""
     type: ResultType = ResultType.TEXT
     content: str
-    sources: List[str] = Field(default_factory=list)
-    tool_calls: List[ToolCallRecord] = Field(default_factory=list)
-    structured_data: Optional[Dict[str, Any]] = None
+    sources: list[str] = Field(default_factory=list)
+    tool_calls: list[ToolCallRecord] = Field(default_factory=list)
+    structured_data: dict[str, Any] | None = None
 
 
 class ResultMetadata(BaseModel):
     """Metadata about the worker execution."""
     tokens_used: int = 0
     duration_ms: int = 0
-    tools_invoked: List[str] = Field(default_factory=list)
-    model_used: Optional[str] = None
+    tools_invoked: list[str] = Field(default_factory=list)
+    model_used: str | None = None
     retry_count: int = 0
 
 
@@ -65,7 +65,7 @@ class WorkerResult(BaseModel):
         """Shortcut to output content."""
         return self.output.content
 
-    def to_message(self) -> Dict[str, Any]:
+    def to_message(self) -> dict[str, Any]:
         """Convert to message format for graph state."""
         return {
             "role": "assistant",
@@ -78,11 +78,11 @@ class Message(BaseModel):
     """A message in the conversation."""
     role: str  # "user", "assistant", "system", "tool"
     content: str
-    name: Optional[str] = None
-    tool_calls: Optional[List[Dict[str, Any]]] = None
-    tool_call_id: Optional[str] = None
+    name: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         d = {"role": self.role, "content": self.content}
         if self.name:
@@ -102,20 +102,20 @@ class GraphState(TypedDict):
     """LangGraph state schema with reducers."""
     messages: Annotated[list, add_messages]
     task: str
-    context: Dict[str, Any]
-    roster: List[str]
-    last_result: Optional[WorkerResult]
-    next: Optional[str]
+    context: dict[str, Any]
+    roster: list[str]
+    last_result: WorkerResult | None
+    next: str | None
     done: bool
     iteration: int
-    metadata: Dict[str, Any]
-    thread_id: Optional[str]
+    metadata: dict[str, Any]
+    thread_id: str | None
 
 
 def create_initial_state(
-    messages: List[Dict[str, Any]],
-    roster: List[str],
-    thread_id: Optional[str] = None
+    messages: list[dict[str, Any]],
+    roster: list[str],
+    thread_id: str | None = None
 ) -> GraphState:
     """
     Create initial graph state.

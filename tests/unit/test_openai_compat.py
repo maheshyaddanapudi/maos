@@ -1,7 +1,6 @@
 """Unit tests for OpenAI-compatible API endpoints."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 from maos.api.models import (
     OpenAIChatRequest,
@@ -9,8 +8,8 @@ from maos.api.models import (
     OpenAIMessage,
 )
 from maos.api.routes.openai_compat import (
-    _extract_interrupt_message,
     _extract_final_content,
+    _extract_interrupt_message,
 )
 
 
@@ -168,7 +167,7 @@ class TestOpenAIChatResponseModel:
 
     def test_response_includes_thread_id(self):
         """Test response includes thread_id."""
-        from maos.api.models import OpenAIChoice, OpenAIUsage
+        from maos.api.models import OpenAIChoice
 
         response = OpenAIChatResponse(
             id="test-123",
@@ -188,7 +187,7 @@ class TestOpenAIChatResponseModel:
 
     def test_response_input_pending_flag(self):
         """Test response input_pending flag for interrupts."""
-        from maos.api.models import OpenAIChoice, OpenAIUsage
+        from maos.api.models import OpenAIChoice
 
         response = OpenAIChatResponse(
             id="test-123",

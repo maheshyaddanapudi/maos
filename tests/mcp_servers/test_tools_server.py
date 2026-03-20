@@ -13,14 +13,12 @@ Run with: python -m tests.mcp_servers.test_tools_server
 
 import asyncio
 import json
-import sys
 from datetime import datetime
 from typing import Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
-
+from mcp.types import TextContent, Tool
 
 # Create server instance
 server = Server("test-tools-server")
@@ -114,7 +112,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 # Check for ** (power)
                 clean = expression.replace("**", "")
                 if not all(c in allowed or c.isspace() for c in clean):
-                    return [TextContent(type="text", text=f"Error: Invalid characters in expression")]
+                    return [TextContent(type="text", text="Error: Invalid characters in expression")]
 
             result = eval(expression)  # Safe for math only
             return [TextContent(type="text", text=f"Result: {expression} = {result}")]

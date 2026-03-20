@@ -1,7 +1,8 @@
 """Base classes and protocols for LLM integration."""
 
 from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator, Dict, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -10,16 +11,16 @@ class Message(BaseModel):
     """A message in a conversation."""
     role: str  # "user", "assistant", "system", "tool"
     content: str
-    name: Optional[str] = None
-    tool_calls: Optional[List["ToolCallRequest"]] = None
-    tool_call_id: Optional[str] = None
+    name: str | None = None
+    tool_calls: list["ToolCallRequest"] | None = None
+    tool_call_id: str | None = None
 
     @classmethod
     def user(cls, content: str) -> "Message":
         return cls(role="user", content=content)
 
     @classmethod
-    def assistant(cls, content: str, tool_calls: Optional[List["ToolCallRequest"]] = None) -> "Message":
+    def assistant(cls, content: str, tool_calls: list["ToolCallRequest"] | None = None) -> "Message":
         return cls(role="assistant", content=content, tool_calls=tool_calls)
 
     @classmethod
@@ -27,7 +28,7 @@ class Message(BaseModel):
         return cls(role="system", content=content)
 
     @classmethod
-    def tool(cls, content: str, tool_call_id: str, name: Optional[str] = None) -> "Message":
+    def tool(cls, content: str, tool_call_id: str, name: str | None = None) -> "Message":
         return cls(role="tool", content=content, tool_call_id=tool_call_id, name=name)
 
 
@@ -35,21 +36,21 @@ class ToolCallRequest(BaseModel):
     """A request to call a tool from the LLM."""
     id: str
     name: str
-    arguments: Dict[str, Any]
+    arguments: dict[str, Any]
 
 
 class ToolDefinition(BaseModel):
     """Definition of a tool available to the LLM."""
     name: str
     description: str
-    parameters: Dict[str, Any] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_json_schema(
         cls,
         name: str,
         description: str,
-        schema: Dict[str, Any]
+        schema: dict[str, Any]
     ) -> "ToolDefinition":
         """Create from JSON Schema."""
         return cls(
@@ -62,10 +63,10 @@ class ToolDefinition(BaseModel):
 class LLMResponse(BaseModel):
     """Response from an LLM invocation."""
     content: str
-    tool_calls: List[ToolCallRequest] = Field(default_factory=list)
-    finish_reason: Optional[str] = None
-    usage: Dict[str, int] = Field(default_factory=dict)
-    model: Optional[str] = None
+    tool_calls: list[ToolCallRequest] = Field(default_factory=list)
+    finish_reason: str | None = None
+    usage: dict[str, int] = Field(default_factory=dict)
+    model: str | None = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -75,8 +76,8 @@ class LLMResponse(BaseModel):
 class LLMChunk(BaseModel):
     """A streaming chunk from an LLM."""
     content: str = ""
-    tool_calls: Optional[List[ToolCallRequest]] = None
-    finish_reason: Optional[str] = None
+    tool_calls: list[ToolCallRequest] | None = None
+    finish_reason: str | None = None
     done: bool = False
 
 
@@ -86,8 +87,8 @@ class LLMAdapter(ABC):
     @abstractmethod
     async def invoke(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
         **kwargs: Any
     ) -> LLMResponse:
         """
@@ -106,8 +107,8 @@ class LLMAdapter(ABC):
     @abstractmethod
     async def stream(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
         **kwargs: Any
     ) -> AsyncIterator[LLMChunk]:
         """

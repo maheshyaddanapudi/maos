@@ -10,25 +10,23 @@ The supervisor automatically discovers workers from the agents list -
 no need to hardcode worker names in system prompts.
 """
 
-from typing import Any, Callable, Dict, List, Optional, Annotated
+from typing import Annotated
 
 import structlog
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool, StructuredTool
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import create_react_agent
-from langgraph_supervisor import create_supervisor
 from langgraph.types import interrupt
+from langgraph_supervisor import create_supervisor
 
-from maos.config.models import Config, GraphConfig
-from maos.agents.registry import AgentRegistry
+from maos.a2a.client import A2AClient
 from maos.agents.models import ExternalAgent
+from maos.agents.registry import AgentRegistry
+from maos.config.models import Config
 from maos.llm.factory import LLMFactory
 from maos.tools.registry import ToolRegistry
-from maos.graph.state import GraphState
-from maos.a2a.client import A2AClient
 
 logger = structlog.get_logger()
 
@@ -150,7 +148,7 @@ class GraphFactory:
         agent_registry: AgentRegistry,
         llm_factory: LLMFactory,
         tool_registry: ToolRegistry,
-        a2a_client: Optional[A2AClient] = None,
+        a2a_client: A2AClient | None = None,
     ):
         """
         Initialize the factory.
@@ -255,7 +253,7 @@ class GraphFactory:
         workflow = self.build()
         return workflow.compile(checkpointer=checkpointer)
 
-    def _get_worker_tools(self, tool_ids: Optional[List[str]]) -> List[BaseTool]:
+    def _get_worker_tools(self, tool_ids: list[str] | None) -> list[BaseTool]:
         """Get LangChain tools for a worker."""
         if not tool_ids:
             return []
@@ -274,8 +272,7 @@ class GraphFactory:
 
     def _convert_to_langchain_tool(self, tool) -> BaseTool:
         """Convert a MAOS tool to a LangChain tool."""
-        from pydantic import create_model, Field
-        from typing import Any
+        from pydantic import Field, create_model
 
         # Build Pydantic model from tool's JSON schema
         field_definitions = {}

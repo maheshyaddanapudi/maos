@@ -1,20 +1,20 @@
 """Unit tests for thread ID resolution utilities."""
 
 import uuid
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
 from maos.api.thread_id import (
+    LANGGRAPH_CONFIG,
+    OPENWEBUI_CONFIG,
     ThreadIdConfig,
     ThreadIdResolver,
-    DEFAULT_CONFIG,
-    OPENWEBUI_CONFIG,
-    LANGGRAPH_CONFIG,
-    resolve_thread_id,
-    get_thread_id_from_openwebui,
     default_resolver,
-    openwebui_resolver,
+    get_thread_id_from_openwebui,
     langgraph_resolver,
+    openwebui_resolver,
+    resolve_thread_id,
 )
 
 

@@ -1,12 +1,12 @@
 """Unit tests for conversations API endpoints."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi.testclient import TestClient
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from maos.api.routes.conversations import router, get_app_context
-
+from maos.api.routes.conversations import get_app_context, router
 
 # =============================================================================
 # Test Fixtures
@@ -429,7 +429,7 @@ class TestCheckpointerConfig:
 
     def test_checkpointer_config_in_graph_config(self):
         """Test checkpointer configuration in GraphConfig."""
-        from maos.config.models import GraphConfig, CheckpointerConfig
+        from maos.config.models import CheckpointerConfig, GraphConfig
 
         graph_config = GraphConfig(
             checkpointer=CheckpointerConfig(type="sqlite")
@@ -446,9 +446,10 @@ class TestCheckpointerFactory:
 
     def test_create_memory_saver(self):
         """Test creating memory checkpointer."""
-        from maos.graph.checkpointer import CheckpointerFactory
-        from maos.config.models import CheckpointerConfig
         from langgraph.checkpoint.memory import MemorySaver
+
+        from maos.config.models import CheckpointerConfig
+        from maos.graph.checkpointer import CheckpointerFactory
 
         config = CheckpointerConfig(type="memory")
         checkpointer = CheckpointerFactory.create(config)
@@ -458,7 +459,6 @@ class TestCheckpointerFactory:
     def test_create_unknown_type_raises(self):
         """Test that unknown type raises error."""
         from maos.graph.checkpointer import CheckpointerFactory
-        from maos.config.models import CheckpointerConfig
 
         # Use MagicMock to bypass validation
         config = MagicMock()
@@ -478,9 +478,10 @@ class TestConversationStore:
     @pytest.fixture
     def memory_store(self):
         """Create a ConversationStore with memory checkpointer."""
-        from maos.graph.checkpointer import ConversationStore
-        from maos.config.models import CheckpointerConfig
         from langgraph.checkpoint.memory import MemorySaver
+
+        from maos.config.models import CheckpointerConfig
+        from maos.graph.checkpointer import ConversationStore
 
         config = CheckpointerConfig(type="memory")
         checkpointer = MemorySaver()

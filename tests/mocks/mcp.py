@@ -1,6 +1,6 @@
 """Mock MCP components for testing."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class MockMCPConnection:
@@ -9,7 +9,7 @@ class MockMCPConnection:
     def __init__(
         self,
         server_name: str = "mock-server",
-        tools: Optional[List[Dict[str, Any]]] = None
+        tools: list[dict[str, Any]] | None = None
     ):
         """
         Initialize mock connection.
@@ -32,7 +32,7 @@ class MockMCPConnection:
             }
         ]
         self._connected = False
-        self._invoke_history: List[Dict[str, Any]] = []
+        self._invoke_history: list[dict[str, Any]] = []
 
     @property
     def name(self) -> str:
@@ -52,11 +52,11 @@ class MockMCPConnection:
         """Disconnect from mock server."""
         self._connected = False
 
-    def get_tools(self) -> List[Dict[str, Any]]:
+    def get_tools(self) -> list[dict[str, Any]]:
         """List available tools."""
         return self._tools
 
-    async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Call a tool."""
         self._invoke_history.append({
             "name": name,
@@ -65,7 +65,7 @@ class MockMCPConnection:
         return f"Mock result from {name}"
 
     @property
-    def invoke_history(self) -> List[Dict[str, Any]]:
+    def invoke_history(self) -> list[dict[str, Any]]:
         """Get tool invocation history."""
         return self._invoke_history
 
@@ -79,18 +79,18 @@ class MockMCPRegistry:
 
     def __init__(self):
         """Initialize mock registry."""
-        self._connections: Dict[str, MockMCPConnection] = {}
+        self._connections: dict[str, MockMCPConnection] = {}
 
     async def register(self, name: str, config: Any) -> None:
         """Register a mock connection."""
         self._connections[name] = MockMCPConnection(server_name=name)
         await self._connections[name].connect()
 
-    def get_connection(self, name: str) -> Optional[MockMCPConnection]:
+    def get_connection(self, name: str) -> MockMCPConnection | None:
         """Get a connection by name."""
         return self._connections.get(name)
 
-    def get_all_tools(self) -> List[Dict[str, Any]]:
+    def get_all_tools(self) -> list[dict[str, Any]]:
         """Get all tools from all servers."""
         tools = []
         for conn in self._connections.values():
@@ -101,7 +101,7 @@ class MockMCPRegistry:
         self,
         server_name: str,
         tool_name: str,
-        arguments: Dict[str, Any]
+        arguments: dict[str, Any]
     ) -> Any:
         """Call a tool on a server."""
         conn = self._connections.get(server_name)
@@ -109,7 +109,7 @@ class MockMCPRegistry:
             raise KeyError(f"Server not found: {server_name}")
         return await conn.call_tool(tool_name, arguments)
 
-    def list(self) -> List[str]:
+    def list(self) -> list[str]:
         """List all server names."""
         return list(self._connections.keys())
 

@@ -1,7 +1,7 @@
 """End-to-end tests for chat functionality."""
 
+
 import pytest
-from unittest.mock import MagicMock
 
 
 @pytest.mark.e2e
@@ -68,12 +68,13 @@ class TestOpenAICompatE2E:
 
     def test_openai_response_creation(self):
         """Test OpenAI-compatible response creation."""
+        import time
+
         from maos.api.models import (
             OpenAIChatResponse,
             OpenAIChoice,
             OpenAIMessage,
         )
-        import time
 
         response = OpenAIChatResponse(
             id="chatcmpl-123",
@@ -133,10 +134,10 @@ class TestGraphStateE2E:
     def test_worker_result_creation(self):
         """Test WorkerResult creation."""
         from maos.graph.state import (
-            WorkerResult,
+            ResultMetadata,
             ResultOutput,
             ResultType,
-            ResultMetadata,
+            WorkerResult,
         )
 
         result = WorkerResult(
@@ -155,9 +156,9 @@ class TestGraphStateE2E:
     def test_worker_result_to_message(self):
         """Test WorkerResult to message conversion."""
         from maos.graph.state import (
-            WorkerResult,
             ResultOutput,
             ResultType,
+            WorkerResult,
         )
 
         result = WorkerResult(

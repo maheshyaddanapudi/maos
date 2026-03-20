@@ -1,6 +1,7 @@
 """Mock LLM adapter for testing."""
 
-from typing import Any, AsyncIterator, Dict, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from maos.llm.base import (
     LLMAdapter,
@@ -17,8 +18,8 @@ class MockLLMAdapter(LLMAdapter):
 
     def __init__(
         self,
-        responses: Optional[List[str]] = None,
-        tool_calls: Optional[List[List[ToolCallRequest]]] = None,
+        responses: list[str] | None = None,
+        tool_calls: list[list[ToolCallRequest]] | None = None,
         model_name: str = "mock-model"
     ):
         """
@@ -33,12 +34,12 @@ class MockLLMAdapter(LLMAdapter):
         self._tool_calls = tool_calls or []
         self._model_name = model_name
         self._call_count = 0
-        self._invoke_history: List[Dict[str, Any]] = []
+        self._invoke_history: list[dict[str, Any]] = []
 
     async def invoke(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None
     ) -> LLMResponse:
         """Return a mock response."""
         # Record the call
@@ -66,8 +67,8 @@ class MockLLMAdapter(LLMAdapter):
 
     async def stream(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None
     ) -> AsyncIterator[LLMChunk]:
         """Stream a mock response."""
         response = await self.invoke(messages, tools)
@@ -93,7 +94,7 @@ class MockLLMAdapter(LLMAdapter):
         return self._call_count
 
     @property
-    def invoke_history(self) -> List[Dict[str, Any]]:
+    def invoke_history(self) -> list[dict[str, Any]]:
         """Get history of invoke calls."""
         return self._invoke_history
 
@@ -108,7 +109,7 @@ class MockSupervisorLLM(MockLLMAdapter):
 
     def __init__(
         self,
-        routing_sequence: Optional[List[str]] = None,
+        routing_sequence: list[str] | None = None,
         model_name: str = "mock-supervisor"
     ):
         """
@@ -141,7 +142,7 @@ class MockToolCallingLLM(MockLLMAdapter):
 
     def __init__(
         self,
-        tool_call_sequence: List[Dict[str, Any]],
+        tool_call_sequence: list[dict[str, Any]],
         final_response: str = "Task completed",
         model_name: str = "mock-tool-caller"
     ):

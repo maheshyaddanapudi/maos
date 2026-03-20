@@ -1,12 +1,11 @@
 """Tool registry for materializing tools from MCP servers."""
 
-from typing import Dict, List, Optional
 
 import structlog
 
 from maos.config.models import ToolConfig
 from maos.mcp.registry import MCPRegistry
-from maos.tools.models import Tool, JsonSchema
+from maos.tools.models import JsonSchema, Tool
 
 logger = structlog.get_logger()
 
@@ -22,9 +21,9 @@ class ToolRegistry:
             mcp_registry: MCP registry for server connections.
         """
         self._mcp_registry = mcp_registry
-        self._tools: Dict[str, Tool] = {}
+        self._tools: dict[str, Tool] = {}
 
-    async def materialize(self, tool_configs: Dict[str, ToolConfig]) -> None:
+    async def materialize(self, tool_configs: dict[str, ToolConfig]) -> None:
         """
         Materialize tools from configuration.
 
@@ -76,7 +75,7 @@ class ToolRegistry:
         )
 
         # Bind the invoke function
-        async def invoke(args: Dict, conn=connection, tool_name=config.tool_name):
+        async def invoke(args: dict, conn=connection, tool_name=config.tool_name):
             return await conn.call_tool(tool_name, args)
 
         tool.set_invoke_fn(invoke)
@@ -95,7 +94,7 @@ class ToolRegistry:
         """
         self._tools[tool.id] = tool
 
-    def get(self, tool_id: str) -> Optional[Tool]:
+    def get(self, tool_id: str) -> Tool | None:
         """
         Get a tool by ID.
 
@@ -125,15 +124,15 @@ class ToolRegistry:
             raise KeyError(f"Tool not found: {tool_id}")
         return tool
 
-    def list_all(self) -> List[Tool]:
+    def list_all(self) -> list[Tool]:
         """List all registered tools."""
         return list(self._tools.values())
 
-    def list_by_server(self, server: str) -> List[Tool]:
+    def list_by_server(self, server: str) -> list[Tool]:
         """List tools from a specific MCP server."""
         return [t for t in self._tools.values() if t.server == server]
 
-    def list_ids(self) -> List[str]:
+    def list_ids(self) -> list[str]:
         """List all tool IDs."""
         return list(self._tools.keys())
 

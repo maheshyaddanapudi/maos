@@ -1,13 +1,13 @@
 """Unit tests for LLM module."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
-from maos.llm.base import LLMAdapter, LLMResponse, Message, ToolCallRequest, ToolDefinition
+import pytest
+
+from maos.config.models import LLMConfig, LLMProvider
+from maos.llm.base import LLMResponse, Message, ToolCallRequest, ToolDefinition
 from maos.llm.factory import LLMFactory
 from maos.llm.registry import LLMRegistry
-from maos.config.models import LLMConfig, LLMProvider
-
 from tests.mocks.llm import MockLLMAdapter, MockSupervisorLLM
 
 

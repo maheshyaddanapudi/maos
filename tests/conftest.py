@@ -1,8 +1,7 @@
 """Pytest configuration and fixtures for MAOS tests."""
 
 import asyncio
-import os
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,13 +15,12 @@ from maos.config.models import (
     LLMConfig,
     LLMProvider,
     MCPServerConfig,
-    ServingConfig,
     SkillConfig,
     SkillsetConfig,
     ToolConfig,
 )
-from maos.llm.base import LLMAdapter, LLMResponse, Message, ToolCallRequest
 from maos.graph.state import GraphState
+from maos.llm.base import LLMAdapter, LLMResponse
 
 
 @pytest.fixture(scope="session")
@@ -190,7 +188,7 @@ def mock_tool():
 
 
 @pytest.fixture
-def sample_messages() -> List[Dict[str, Any]]:
+def sample_messages() -> list[dict[str, Any]]:
     """Create sample conversation messages."""
     return [
         {"role": "user", "content": "Hello, can you help me with a task?"}

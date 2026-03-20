@@ -1,6 +1,6 @@
 """Agent data models."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -19,8 +19,8 @@ class Agent(BaseModel):
 
 class WorkerAgent(Agent):
     """A native worker agent."""
-    skillset: Optional[str] = None
-    tool_ids: List[str] = Field(default_factory=list)
+    skillset: str | None = None
+    tool_ids: list[str] = Field(default_factory=list)
     llm_name: str = "default"
 
     # Runtime instance (set by factory)
@@ -38,7 +38,7 @@ class WorkerAgent(Agent):
 
 class SupervisorAgent(Agent):
     """The supervisor agent for routing."""
-    roster: List[str] = Field(default_factory=list)
+    roster: list[str] = Field(default_factory=list)
     llm_name: str = "default"
     max_iterations: int = 12
 
@@ -60,14 +60,14 @@ class ExternalAgent(BaseModel):
     name: str
     description: str = ""
     endpoint: str
-    skills: List[str] = Field(default_factory=list)
-    tags: List[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     supports_streaming: bool = False
     source_url: str = ""
 
     # Whether to import as node or tool
     import_mode: str = "node"  # "node" or "tool"
-    assigned_to: Optional[str] = None  # Worker name for tool mode
+    assigned_to: str | None = None  # Worker name for tool mode
 
     # For managed external agents - the server instance
     _server: Any = None
@@ -90,7 +90,7 @@ class ExternalAgent(BaseModel):
             return self._discovered_agent
 
         # Create a minimal DiscoveredAgent for A2A client
-        from maos.a2a.models import DiscoveredAgent, AgentCard, ServiceInterface, AgentSkill
+        from maos.a2a.models import AgentCard, AgentSkill, DiscoveredAgent, ServiceInterface
 
         card = AgentCard(
             name=self.name,

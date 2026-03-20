@@ -6,8 +6,9 @@ Run with: ANTHROPIC_API_KEY=sk-... pytest tests/e2e/test_real_api_e2e.py -v -s
 """
 
 import os
-import pytest
 from pathlib import Path
+
+import pytest
 
 # Skip all tests if API key not available
 pytestmark = pytest.mark.skipif(
@@ -151,8 +152,9 @@ class TestHumanInTheLoop:
     async def test_send_message_interrupts_for_input(self, maos_system):
         """Test that supervisor can use send_message to request user input."""
         graph, context = maos_system
-        from maos.graph.state import create_initial_state
         from langgraph.types import Command
+
+        from maos.graph.state import create_initial_state
 
         roster = context["agent_registry"].get_roster()
 
@@ -223,7 +225,7 @@ class TestHumanInTheLoop:
 
         state = await graph.aget_state(config)
 
-        print(f"\nState after invocation:")
+        print("\nState after invocation:")
         print(f"  - next: {state.next}")
         print(f"  - has tasks: {bool(state.tasks)}")
 

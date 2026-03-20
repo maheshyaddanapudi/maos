@@ -10,11 +10,11 @@ These endpoints work with any checkpointer (memory, SQLite, PostgreSQL)
 but persistent storage (SQLite/Postgres) is required for data to survive restarts.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-import structlog
 
 logger = structlog.get_logger()
 
@@ -30,7 +30,7 @@ class ConversationSummary(BaseModel):
     thread_id: str
     message_count: int = 0
     last_message_preview: str = ""
-    last_update: Optional[str] = None
+    last_update: str | None = None
     status: str = "idle"  # idle, interrupted, error
 
 
@@ -38,22 +38,22 @@ class ConversationMessage(BaseModel):
     """A message in a conversation."""
     role: str
     content: str
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class ConversationDetail(BaseModel):
     """Full conversation details."""
     thread_id: str
-    messages: List[ConversationMessage]
+    messages: list[ConversationMessage]
     message_count: int
     is_interrupted: bool = False
-    interrupt_prompt: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    interrupt_prompt: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConversationListResponse(BaseModel):
     """Response for listing conversations."""
-    conversations: List[ConversationSummary]
+    conversations: list[ConversationSummary]
     total: int
     limit: int
     offset: int
@@ -62,7 +62,7 @@ class ConversationListResponse(BaseModel):
 class MessageListResponse(BaseModel):
     """Response for listing messages."""
     thread_id: str
-    messages: List[ConversationMessage]
+    messages: list[ConversationMessage]
     total: int
 
 
@@ -70,7 +70,7 @@ class MessageListResponse(BaseModel):
 # Dependency
 # =============================================================================
 
-def get_app_context() -> Dict[str, Any]:
+def get_app_context() -> dict[str, Any]:
     """Get application context - to be overridden by dependency injection."""
     return {}
 
@@ -83,7 +83,7 @@ def get_app_context() -> Dict[str, Any]:
 async def list_conversations(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ) -> ConversationListResponse:
     """
     List all conversations with summary information.
@@ -161,7 +161,7 @@ async def list_conversations(
 @router.get("/{thread_id}", response_model=ConversationDetail)
 async def get_conversation(
     thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ) -> ConversationDetail:
     """
     Get full conversation details including all messages and state.
@@ -232,7 +232,7 @@ async def get_conversation(
 @router.get("/{thread_id}/messages", response_model=MessageListResponse)
 async def get_conversation_messages(
     thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ) -> MessageListResponse:
     """
     Get just the messages for a conversation.
@@ -252,8 +252,8 @@ async def get_conversation_messages(
 @router.delete("/{thread_id}")
 async def delete_conversation(
     thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, Any]:
+    context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, Any]:
     """
     Delete a conversation and all its history.
 
@@ -297,8 +297,8 @@ async def delete_conversation(
 @router.get("/{thread_id}/status")
 async def get_conversation_status(
     thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, Any]:
+    context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, Any]:
     """
     Get the current status of a conversation.
 

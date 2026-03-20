@@ -1,33 +1,31 @@
 """Chat endpoints for conversation handling."""
 
-import uuid
-from typing import Any, Dict, List
+from typing import Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
-import structlog
 
-from maos.api.thread_id import resolve_thread_id
 from maos.api.models import (
     ChatRequest,
     ChatResponse,
-    ErrorResponse,
     InputRequiredResponse,
     Message,
     ResumeRequest,
-    WorkerResultInfo,
     ToolCallInfo,
+    WorkerResultInfo,
 )
-from maos.api.streaming import stream_graph_events, format_sse_event, StreamEventType
-from maos.graph.state import create_initial_state, WorkerResult
+from maos.api.streaming import stream_graph_events
+from maos.api.thread_id import resolve_thread_id
+from maos.graph.state import WorkerResult, create_initial_state
 
 logger = structlog.get_logger()
 
 router = APIRouter(tags=["chat"])
 
 
-def get_app_context() -> Dict[str, Any]:
+def get_app_context() -> dict[str, Any]:
     """Get application context - to be overridden by dependency injection."""
     return {}
 
@@ -46,7 +44,7 @@ def get_checkpointer():
 async def chat(
     request: ChatRequest,
     http_request: Request,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ):
     """
     Start or continue a chat conversation.
@@ -175,7 +173,7 @@ async def chat(
 @router.post("/chat/resume", response_model=ChatResponse)
 async def resume_chat(
     request: ResumeRequest,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ):
     """
     Resume a paused conversation with user input.
@@ -266,7 +264,7 @@ async def resume_chat(
 async def chat_stream(
     request: ChatRequest,
     http_request: Request,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ):
     """
     Start a streaming chat conversation.
@@ -281,8 +279,8 @@ async def chat_stream(
 @router.get("/chat/{thread_id}/state")
 async def get_thread_state(
     thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, Any]:
+    context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, Any]:
     """
     Get the current state of a conversation thread.
 
@@ -324,8 +322,8 @@ async def get_thread_state(
 @router.delete("/chat/{thread_id}")
 async def delete_thread(
     thread_id: str,
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, Any]:
+    context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, Any]:
     """
     Delete a conversation thread.
 
@@ -360,7 +358,7 @@ async def delete_thread(
         )
 
 
-def _extract_worker_results(result: Dict[str, Any]) -> List[WorkerResultInfo]:
+def _extract_worker_results(result: dict[str, Any]) -> list[WorkerResultInfo]:
     """Extract worker results from graph result."""
     worker_results = []
 

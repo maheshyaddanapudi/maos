@@ -8,14 +8,13 @@ the conversation.
 
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
-import structlog
 
-from maos.api.thread_id import resolve_thread_id, OPENWEBUI_CONFIG
 from maos.api.models import (
     OpenAIChatRequest,
     OpenAIChatResponse,
@@ -24,6 +23,7 @@ from maos.api.models import (
     OpenAIUsage,
 )
 from maos.api.streaming import stream_openai_response_with_interrupt
+from maos.api.thread_id import OPENWEBUI_CONFIG, resolve_thread_id
 from maos.graph.state import create_initial_state
 
 logger = structlog.get_logger()
@@ -31,12 +31,12 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/v1", tags=["openai"])
 
 
-def get_app_context() -> Dict[str, Any]:
+def get_app_context() -> dict[str, Any]:
     """Get application context - to be overridden by dependency injection."""
     return {}
 
 
-def _extract_interrupt_message(state) -> Optional[str]:
+def _extract_interrupt_message(state) -> str | None:
     """Extract interrupt message from graph state if interrupted."""
     if not state.next:
         return None
@@ -50,7 +50,7 @@ def _extract_interrupt_message(state) -> Optional[str]:
     return None
 
 
-def _extract_final_content(result: Dict[str, Any]) -> str:
+def _extract_final_content(result: dict[str, Any]) -> str:
     """Extract final assistant content from graph result."""
     for msg in reversed(result.get("messages", [])):
         # Handle AIMessage objects
@@ -71,7 +71,7 @@ def _extract_final_content(result: Dict[str, Any]) -> str:
 async def create_chat_completion(
     request: OpenAIChatRequest,
     http_request: Request,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ):
     """
     OpenAI-compatible chat completions endpoint with interrupt handling.
@@ -239,7 +239,7 @@ async def create_chat_completion(
 
 
 @router.get("/models")
-async def list_models() -> Dict[str, Any]:
+async def list_models() -> dict[str, Any]:
     """
     List available models.
 
@@ -262,7 +262,7 @@ async def list_models() -> Dict[str, Any]:
 
 
 @router.get("/models/{model_id}")
-async def get_model(model_id: str) -> Dict[str, Any]:
+async def get_model(model_id: str) -> dict[str, Any]:
     """
     Get model information.
 

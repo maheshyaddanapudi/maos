@@ -7,7 +7,6 @@ This module creates the appropriate checkpointer based on configuration:
 """
 
 import os
-from typing import Optional, Any
 
 import structlog
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -281,7 +280,7 @@ class ConversationStore:
 
         return self._serialize_messages(messages)
 
-    async def get_thread_state(self, thread_id: str) -> Optional[dict]:
+    async def get_thread_state(self, thread_id: str) -> dict | None:
         """
         Get the full state for a thread.
 

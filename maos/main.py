@@ -1,11 +1,10 @@
 """Main entry point for MAOS."""
 
-import asyncio
 import argparse
+import asyncio
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
 
 import structlog
 from langgraph.checkpoint.memory import MemorySaver
@@ -51,7 +50,6 @@ async def _start_external_agent(
         The running ExternalAgentServer instance, or None if failed.
     """
     from maos.a2a.agents import TitleGeneratorAgent
-    from maos.a2a.agents.base import ExternalAgentServer
 
     server_config = agent_config.server
     if server_config is None:
@@ -112,17 +110,17 @@ async def initialize_system(config_path: str, checkpointer=None):
     Returns:
         Tuple of (compiled_graph, app_context_dict)
     """
-    from maos.config.loader import ConfigLoader
-    from maos.llm.registry import LLMRegistry
-    from maos.llm.factory import LLMFactory
-    from maos.mcp.registry import MCPRegistry
-    from maos.tools.registry import ToolRegistry
-    from maos.skills.registry import SkillRegistry, SkillsetRegistry
-    from maos.agents.registry import AgentRegistry
-    from maos.agents.factory import AgentFactory
-    from maos.a2a.discovery import A2ADiscovery
     from maos.a2a.client import A2AClient
+    from maos.a2a.discovery import A2ADiscovery
+    from maos.agents.factory import AgentFactory
+    from maos.agents.registry import AgentRegistry
+    from maos.config.loader import ConfigLoader
     from maos.graph.factory import GraphFactory
+    from maos.llm.factory import LLMFactory
+    from maos.llm.registry import LLMRegistry
+    from maos.mcp.registry import MCPRegistry
+    from maos.skills.registry import SkillRegistry, SkillsetRegistry
+    from maos.tools.registry import ToolRegistry
 
     logger.info("initializing_maos", config_path=config_path)
 
@@ -390,7 +388,7 @@ async def validate_config(config_path: str):
 
     try:
         config = loader.load(config_path)
-        print(f"✓ Configuration is valid")
+        print("✓ Configuration is valid")
         print(f"  - LLMs: {len(config.llms)}")
         print(f"  - MCP Servers: {len(config.mcp_servers)}")
         print(f"  - Tools: {len(config.tools)}")

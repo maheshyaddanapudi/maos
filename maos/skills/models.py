@@ -1,6 +1,6 @@
 """Skill and skillset data models."""
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -13,9 +13,9 @@ class Skill(BaseModel):
     """A skill groups related tools."""
     name: str
     description: str = ""
-    tool_ids: List[str] = Field(default_factory=list)
+    tool_ids: list[str] = Field(default_factory=list)
 
-    def get_tools(self, tool_registry: "ToolRegistry") -> List["Tool"]:
+    def get_tools(self, tool_registry: "ToolRegistry") -> list["Tool"]:
         """
         Resolve tool IDs to Tool objects.
 
@@ -37,9 +37,9 @@ class Skillset(BaseModel):
     """A skillset groups related skills for an agent."""
     name: str
     description: str = ""
-    skill_names: List[str] = Field(default_factory=list)
+    skill_names: list[str] = Field(default_factory=list)
 
-    def get_skills(self, skill_registry: "SkillRegistry") -> List[Skill]:
+    def get_skills(self, skill_registry: "SkillRegistry") -> list[Skill]:
         """
         Resolve skill names to Skill objects.
 
@@ -60,7 +60,7 @@ class Skillset(BaseModel):
         self,
         skill_registry: "SkillRegistry",
         tool_registry: "ToolRegistry"
-    ) -> List["Tool"]:
+    ) -> list["Tool"]:
         """
         Get all tools across all skills in this skillset.
 
@@ -80,7 +80,7 @@ class Skillset(BaseModel):
                     seen_ids.add(tool.id)
         return tools
 
-    def get_all_tool_ids(self, skill_registry: "SkillRegistry") -> List[str]:
+    def get_all_tool_ids(self, skill_registry: "SkillRegistry") -> list[str]:
         """
         Get all tool IDs across all skills.
 

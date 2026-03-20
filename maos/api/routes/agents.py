@@ -1,9 +1,9 @@
 """Agent listing endpoint."""
 
-from typing import Any, Dict, List
+from typing import Any
 
-from fastapi import APIRouter, Depends
 import structlog
+from fastapi import APIRouter, Depends
 
 from maos.api.models import AgentInfo, AgentListResponse
 
@@ -12,14 +12,14 @@ logger = structlog.get_logger()
 router = APIRouter(tags=["agents"])
 
 
-def get_app_context() -> Dict[str, Any]:
+def get_app_context() -> dict[str, Any]:
     """Get application context - to be overridden by dependency injection."""
     return {}
 
 
 @router.get("/agents", response_model=AgentListResponse)
 async def list_agents(
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ) -> AgentListResponse:
     """
     List all available agents.
@@ -29,8 +29,8 @@ async def list_agents(
     - All worker agents (native)
     - All external agents (via A2A)
     """
-    workers: List[AgentInfo] = []
-    external_agents: List[AgentInfo] = []
+    workers: list[AgentInfo] = []
+    external_agents: list[AgentInfo] = []
     supervisor_info = None
 
     agent_registry = context.get("agent_registry")
@@ -94,7 +94,7 @@ async def list_agents(
 @router.get("/agents/{agent_name}", response_model=AgentInfo)
 async def get_agent(
     agent_name: str,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ) -> AgentInfo:
     """
     Get details about a specific agent.
@@ -158,8 +158,8 @@ async def get_agent(
 
 @router.get("/roster")
 async def get_roster(
-    context: Dict[str, Any] = Depends(get_app_context)
-) -> Dict[str, Any]:
+    context: dict[str, Any] = Depends(get_app_context)
+) -> dict[str, Any]:
     """
     Get the current agent roster.
 

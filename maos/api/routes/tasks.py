@@ -5,11 +5,11 @@ for true plug-and-play agent discovery.
 """
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from pydantic import BaseModel, Field
 import structlog
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from maos.graph.state import create_initial_state
 
@@ -24,12 +24,12 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 class TitleGenerationRequest(BaseModel):
     """Request for title generation."""
-    messages: List[Dict[str, str]] = Field(
+    messages: list[dict[str, str]] = Field(
         ...,
         description="Conversation messages to generate title for",
         min_length=1
     )
-    thread_id: Optional[str] = Field(
+    thread_id: str | None = Field(
         None,
         description="Thread ID for the conversation"
     )
@@ -65,7 +65,7 @@ class BackgroundTasksRequest(BaseModel):
 # Dependency Injection
 # =============================================================================
 
-def get_app_context() -> Dict[str, Any]:
+def get_app_context() -> dict[str, Any]:
     """Get application context - to be overridden by dependency injection."""
     return {}
 
@@ -77,7 +77,7 @@ def get_app_context() -> Dict[str, Any]:
 @router.post("/title", response_model=TitleGenerationResponse)
 async def generate_title(
     request: TitleGenerationRequest,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ):
     """
     Generate a title for a conversation.
@@ -166,7 +166,7 @@ async def generate_title(
 async def generate_title_async(
     request: TitleGenerationRequest,
     background_tasks: BackgroundTasks,
-    context: Dict[str, Any] = Depends(get_app_context)
+    context: dict[str, Any] = Depends(get_app_context)
 ):
     """
     Queue title generation as a background task.
@@ -200,7 +200,7 @@ async def generate_title_async(
 # Helper Functions
 # =============================================================================
 
-def _build_conversation_summary(messages: List[Dict[str, str]], max_chars: int = 500) -> str:
+def _build_conversation_summary(messages: list[dict[str, str]], max_chars: int = 500) -> str:
     """Build a summary of the conversation for title generation."""
     summary_parts = []
     total_chars = 0
@@ -224,7 +224,7 @@ def _build_conversation_summary(messages: List[Dict[str, str]], max_chars: int =
     return "\n".join(summary_parts)
 
 
-def _extract_title_from_result(result: Dict[str, Any]) -> str:
+def _extract_title_from_result(result: dict[str, Any]) -> str:
     """Extract the title from graph result."""
     messages = result.get("messages", [])
 
@@ -251,8 +251,8 @@ def _extract_title_from_result(result: Dict[str, Any]) -> str:
 async def _generate_title_background(
     task_id: str,
     thread_id: str,
-    messages: List[Dict[str, str]],
-    context: Dict[str, Any]
+    messages: list[dict[str, str]],
+    context: dict[str, Any]
 ) -> None:
     """Background task for title generation."""
     # TODO: Store result in a task store for retrieval

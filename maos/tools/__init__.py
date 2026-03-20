@@ -1,6 +1,6 @@
 """Tool management module for MAOS."""
 
-from maos.tools.models import Tool, ToolCall, ToolResult, JsonSchema
+from maos.tools.models import JsonSchema, Tool, ToolCall, ToolResult
 from maos.tools.registry import ToolRegistry
 
 __all__ = [

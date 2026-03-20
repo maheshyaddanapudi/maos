@@ -1,7 +1,7 @@
 """A2A client for communicating with external agents."""
 
 import uuid
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
 
 import httpx
 import structlog
@@ -24,7 +24,7 @@ class A2AClient:
 
     def __init__(
         self,
-        http_client: Optional[httpx.AsyncClient] = None,
+        http_client: httpx.AsyncClient | None = None,
         timeout: float = 40.0
     ):
         """
@@ -48,7 +48,7 @@ class A2AClient:
         self,
         agent: DiscoveredAgent,
         message: str,
-        timeout: Optional[int] = None
+        timeout: int | None = None
     ) -> A2AResponse:
         """
         Send a message to an external agent.
@@ -116,7 +116,7 @@ class A2AClient:
         self,
         agent: DiscoveredAgent,
         message: str,
-        timeout: Optional[int] = None
+        timeout: int | None = None
     ) -> AsyncIterator[str]:
         """
         Stream a message to an external agent.
@@ -188,7 +188,7 @@ class A2AClient:
         self,
         agent: DiscoveredAgent,
         task_id: str
-    ) -> Optional[TaskStatus]:
+    ) -> TaskStatus | None:
         """
         Get the status of a task.
 

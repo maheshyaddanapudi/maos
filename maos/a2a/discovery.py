@@ -1,14 +1,13 @@
 """A2A agent discovery."""
 
 import asyncio
-from typing import List, Optional
 from urllib.parse import urljoin
 
 import httpx
 import structlog
 
-from maos.config.models import A2AConfig, A2AImportPolicy
 from maos.a2a.models import AgentCard, DiscoveredAgent, HostIndex
+from maos.config.models import A2AConfig, A2AImportPolicy
 
 logger = structlog.get_logger()
 
@@ -16,7 +15,7 @@ logger = structlog.get_logger()
 class A2ADiscovery:
     """Discover external A2A agents from seed URLs."""
 
-    def __init__(self, http_client: Optional[httpx.AsyncClient] = None):
+    def __init__(self, http_client: httpx.AsyncClient | None = None):
         """
         Initialize A2A discovery.
 
@@ -26,7 +25,7 @@ class A2ADiscovery:
         self._http_client = http_client
         self._owns_client = http_client is None
 
-    async def discover(self, config: A2AConfig) -> List[DiscoveredAgent]:
+    async def discover(self, config: A2AConfig) -> list[DiscoveredAgent]:
         """
         Discover agents from seed URLs.
 
@@ -73,7 +72,7 @@ class A2ADiscovery:
                 await self._http_client.aclose()
                 self._http_client = None
 
-    async def _discover_parallel(self, config: A2AConfig) -> List[DiscoveredAgent]:
+    async def _discover_parallel(self, config: A2AConfig) -> list[DiscoveredAgent]:
         """Discover agents from all seeds in parallel."""
         tasks = [
             self._discover_from_seed(seed, config)
@@ -90,7 +89,7 @@ class A2ADiscovery:
 
         return discovered
 
-    async def _discover_sequential(self, config: A2AConfig) -> List[DiscoveredAgent]:
+    async def _discover_sequential(self, config: A2AConfig) -> list[DiscoveredAgent]:
         """Discover agents from all seeds sequentially."""
         discovered = []
         for seed in config.discovery.seeds:
@@ -105,7 +104,7 @@ class A2ADiscovery:
         self,
         seed_url: str,
         config: A2AConfig
-    ) -> List[DiscoveredAgent]:
+    ) -> list[DiscoveredAgent]:
         """Discover agents from a single seed URL."""
         discovered = []
 
@@ -137,7 +136,7 @@ class A2ADiscovery:
         self,
         base_url: str,
         config: A2AConfig
-    ) -> Optional[HostIndex]:
+    ) -> HostIndex | None:
         """Fetch host index from a multi-agent host."""
         index_url = urljoin(base_url, config.discovery.host_index_path)
         try:
@@ -152,7 +151,7 @@ class A2ADiscovery:
         self,
         card_url: str,
         config: A2AConfig
-    ) -> Optional[DiscoveredAgent]:
+    ) -> DiscoveredAgent | None:
         """Fetch agent card and create DiscoveredAgent."""
         card = await self._fetch_agent_card(card_url)
         if card is None:
@@ -171,7 +170,7 @@ class A2ADiscovery:
             import_mode="node" if config.import_policy.mode == "langgraph_nodes" else "tool"
         )
 
-    async def _fetch_agent_card(self, url: str) -> Optional[AgentCard]:
+    async def _fetch_agent_card(self, url: str) -> AgentCard | None:
         """Fetch and parse an agent card."""
         try:
             response = await self._http_client.get(url)
@@ -186,9 +185,9 @@ class A2ADiscovery:
 
     def _apply_policy(
         self,
-        agents: List[DiscoveredAgent],
+        agents: list[DiscoveredAgent],
         policy: A2AImportPolicy
-    ) -> List[DiscoveredAgent]:
+    ) -> list[DiscoveredAgent]:
         """Apply import policy filters to discovered agents."""
         filtered = agents
 

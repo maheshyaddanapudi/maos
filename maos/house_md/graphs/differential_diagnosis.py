@@ -26,19 +26,33 @@ MAX_ITERATIONS = 5
 
 
 def create_initial_diagnostic_state(
-    user_message: str,
+    user_message: str | None = None,
+    user_messages: list[str] | None = None,
     active_team: list[str] | None = None,
 ) -> DiagnosticState:
-    """Create the initial state for a diagnostic session."""
+    """Create the initial state for a diagnostic session.
+
+    Accepts either a single ``user_message`` (backwards-compatible) or a
+    list of ``user_messages`` for multi-turn conversations.  All user
+    messages are recorded as symptoms and included in the message history.
+    """
     if active_team is None:
         active_team = ["house", "foreman", "cameron", "chase"]
 
+    # Normalise to a list of messages
+    msgs: list[str] = []
+    if user_messages:
+        msgs = list(user_messages)
+    elif user_message:
+        msgs = [user_message]
+
     whiteboard = Whiteboard()
-    whiteboard.add_symptom(user_message)
+    for m in msgs:
+        whiteboard.add_symptom(m)
 
     return DiagnosticState(
-        messages=[HumanMessage(content=user_message)],
-        symptoms=[user_message],
+        messages=[HumanMessage(content=m) for m in msgs] if msgs else [],
+        symptoms=list(msgs),
         hypotheses=[],
         evidence={},
         current_phase=DiagnosticPhase.INTAKE.value,

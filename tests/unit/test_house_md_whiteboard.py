@@ -26,7 +26,7 @@ class TestWhiteboardEntry:
         entry = WhiteboardEntry(hypothesis="Bug", proposer="chase")
         entry.add_supporting_evidence("Stack trace matches")
         assert len(entry.evidence_for) == 1
-        assert entry.confidence == 0.6
+        assert entry.confidence == 0.65
 
     def test_add_supporting_evidence_caps_at_1(self):
         entry = WhiteboardEntry(
@@ -39,7 +39,7 @@ class TestWhiteboardEntry:
         entry = WhiteboardEntry(hypothesis="Bug", proposer="chase")
         entry.add_counter_evidence("Tests pass")
         assert len(entry.evidence_against) == 1
-        assert entry.confidence == 0.4
+        assert entry.confidence == 0.35
 
     def test_add_counter_evidence_floors_at_0(self):
         entry = WhiteboardEntry(

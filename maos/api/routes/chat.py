@@ -96,15 +96,19 @@ async def chat(
         graph_mode = getattr(app_config.graph, "mode", "supervisor")
 
     if graph_mode == "house_md":
-        # Extract user message for diagnostic state
-        user_message = ""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                user_message = msg.get("content", "")
-                break
+        # Extract all user messages for diagnostic state (preserve
+        # multi-turn context).
+        user_messages = [
+            msg.get("content", "")
+            for msg in messages
+            if msg.get("role") == "user" and msg.get("content")
+        ]
+        # House MD uses personality-defined team names (house, foreman,
+        # chase, etc.), NOT config-defined agent registry names.  Pass
+        # None so ``create_initial_diagnostic_state`` uses the default
+        # House MD roster.
         initial_state = create_initial_diagnostic_state(
-            user_message=user_message,
-            active_team=roster or None,
+            user_messages=user_messages,
         )
     else:
         initial_state = create_initial_state(

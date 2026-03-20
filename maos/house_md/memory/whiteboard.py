@@ -43,11 +43,11 @@ class WhiteboardEntry:
 
     def add_supporting_evidence(self, evidence: str) -> None:
         self.evidence_for.append(evidence)
-        self.confidence = min(1.0, self.confidence + 0.1)
+        self.confidence = min(1.0, self.confidence + 0.15)
 
     def add_counter_evidence(self, evidence: str) -> None:
         self.evidence_against.append(evidence)
-        self.confidence = max(0.0, self.confidence - 0.1)
+        self.confidence = max(0.0, self.confidence - 0.15)
 
     def add_challenge(self, challenger: str, challenge: str) -> None:
         self.challenges.append({"challenger": challenger, "challenge": challenge})

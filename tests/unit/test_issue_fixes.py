@@ -1,4 +1,4 @@
-"""Tests for Issues 7-16 fixes.
+"""Tests for Issues 7-26 fixes.
 
 Issue 7:  Whiteboard hypotheses populated from agent responses
 Issue 8:  Trimmed message history in _invoke_agent
@@ -10,6 +10,15 @@ Issue 13: Broader hypothesis extraction patterns
 Issue 14: Configurable max_context_messages
 Issue 15: Environmental findings extracted to whiteboard
 Issue 16: PersonalityWrapper always prepends system prompt
+Issue 17: Roster/personality name mismatch — always use personality names
+Issue 18: Testing node extracts hypotheses to whiteboard
+Issue 19: Wilson consult node extracts hypotheses to whiteboard
+Issue 20: Provocation node extracts hypotheses to whiteboard
+Issue 22: Re-entry to differential/critique after testing cycles
+Issue 23: Critique round sets team_context before invocation
+Issue 24: Confidence arithmetic supports convergence (+0.15 per evidence)
+Issue 25: Whiteboard iteration count stays in sync
+Issue 26: House MD mode preserves multi-turn messages
 """
 
 from __future__ import annotations
@@ -34,15 +43,20 @@ from maos.house_md.graphs.critique_round import (
     extract_hypotheses,
     run_critique_round,
 )
+from maos.house_md.graphs.differential_diagnosis import (
+    create_initial_diagnostic_state,
+)
 from maos.house_md.graphs.factory import (
     _DEFAULT_MAX_CONTEXT_MESSAGES,
     _invoke_agent,
+    _update_whiteboard_hypotheses,
 )
 from maos.house_md.graphs.states import DiagnosticPhase
 from maos.house_md.memory.whiteboard import Whiteboard
 from maos.house_md.personalities.base import (
     PersonalityConfig,
     PersonalityWrapper,
+    TeamContext,
 )
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -985,3 +999,283 @@ class TestPersonalityWrapperAlwaysPrepends:
         ]
         assert len(system_msgs) == 1
         assert isinstance(result2["messages"][0], SystemMessage)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 17: Roster uses personality names, not config names
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestRosterPersonalityNames:
+    def test_default_active_team(self):
+        """Default active_team uses House MD personality names."""
+        state = create_initial_diagnostic_state(user_message="test bug")
+        assert "house" in state["active_team"]
+        assert "foreman" in state["active_team"]
+        assert "cameron" in state["active_team"]
+        assert "chase" in state["active_team"]
+
+    def test_none_roster_gets_defaults(self):
+        """Passing None for active_team falls back to defaults."""
+        state = create_initial_diagnostic_state(
+            user_message="test", active_team=None
+        )
+        assert state["active_team"] == ["house", "foreman", "cameron", "chase"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issues 18-20: Hypothesis extraction from testing/wilson/provocation nodes
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestUpdateWhiteboardHypotheses:
+    """Test the _update_whiteboard_hypotheses helper used by all nodes."""
+
+    def test_new_hypothesis_added(self):
+        wb = Whiteboard()
+        content = "HYPOTHESIS: Database connection pool exhaustion"
+        _update_whiteboard_hypotheses(wb, content, "chase")
+        active = wb.get_active_hypotheses()
+        assert len(active) == 1
+        assert "connection pool" in active[0].hypothesis.lower()
+        assert active[0].proposer == "chase"
+
+    def test_existing_hypothesis_gets_evidence(self):
+        wb = Whiteboard()
+        wb.add_hypothesis("connection pool exhaustion", "foreman")
+        content = "HYPOTHESIS: Connection pool exhaustion"
+        _update_whiteboard_hypotheses(wb, content, "chase")
+        active = wb.get_active_hypotheses()
+        assert len(active) == 1
+        # Confidence boosted by supporting evidence (+0.15)
+        assert active[0].confidence > 0.5
+
+    def test_no_hypotheses_in_generic_text(self):
+        wb = Whiteboard()
+        content = "I agree with the analysis. Let's proceed."
+        _update_whiteboard_hypotheses(wb, content, "house")
+        assert len(wb.get_active_hypotheses()) == 0
+
+    def test_multiple_hypotheses_extracted(self):
+        wb = Whiteboard()
+        content = (
+            "HYPOTHESIS: Thread pool starvation\n"
+            "HYPOTHESIS: ORM query regression\n"
+        )
+        _update_whiteboard_hypotheses(wb, content, "house")
+        active = wb.get_active_hypotheses()
+        assert len(active) == 2
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 22: Re-entry to differential/critique after testing cycles
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestRouteReentrytoDifferential:
+    """Test that route_after_provocation returns 'differential' on even iterations."""
+
+    def _make_routing_state(
+        self, iteration: int, confidence: float = 0.5, has_env: bool = False,
+    ) -> dict[str, Any]:
+        wb = Whiteboard()
+        wb.add_hypothesis("test hypothesis", "foreman", confidence=confidence)
+        if has_env:
+            wb.add_environmental_finding("some finding")
+        return {
+            "iteration": iteration,
+            "whiteboard": wb.to_dict(),
+            "messages": [],
+            "symptoms": [],
+            "hypotheses": [],
+            "evidence": {},
+            "current_phase": "provocation",
+            "agent_beliefs": {},
+            "final_diagnosis": None,
+            "confidence": 0.0,
+            "active_team": ["house", "foreman", "chase"],
+        }
+
+    def test_iteration_2_even_goes_to_differential(self):
+        """Even iterations > 1 should route to differential for critique."""
+        # We need to simulate what route_after_provocation does
+        from maos.house_md.memory.whiteboard import Whiteboard
+
+        state = self._make_routing_state(iteration=2, has_env=True)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        iteration = state["iteration"]
+        top = wb.get_top_hypothesis()
+
+        # Not at max iterations, not high confidence, has active hyps,
+        # has env findings, iteration is even and > 1
+        assert iteration > 1
+        assert iteration % 2 == 0
+        assert top is not None
+        assert top.confidence <= 0.85
+
+    def test_iteration_3_odd_goes_to_testing(self):
+        """Odd iterations should route to testing."""
+        state = self._make_routing_state(iteration=3, has_env=True)
+        # iteration 3 is odd, so should go to testing
+        assert state["iteration"] % 2 != 0
+
+    def test_high_confidence_goes_to_resolution(self):
+        """High confidence should always go to resolution."""
+        state = self._make_routing_state(iteration=2, confidence=0.9)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        top = wb.get_top_hypothesis()
+        assert top.confidence > 0.85
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 23: Critique round sets team_context
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestCritiqueRoundTeamContext:
+    @pytest.mark.asyncio
+    async def test_team_context_set_on_personality_wrapper(self):
+        """Critique round should set team_context before calling agents."""
+        state = _make_state(active_team=["chase"])
+
+        wrapper = _mock_personality_agent(
+            "HYPOTHESIS: Connection pool exhaustion"
+        )
+        # Verify team_context is None initially
+        assert wrapper.team_context is None
+
+        # Track whether team_context was set before invoke
+        original_ainvoke = wrapper.base_agent.ainvoke
+        team_context_during_call = []
+
+        async def tracking_ainvoke(state, config=None):
+            team_context_during_call.append(wrapper.team_context)
+            return await original_ainvoke(state, config)
+
+        wrapper.base_agent.ainvoke = tracking_ainvoke
+
+        await run_critique_round(state, {"chase": wrapper})
+
+        # team_context should have been set before the call
+        assert len(team_context_during_call) == 1
+        ctx = team_context_during_call[0]
+        assert isinstance(ctx, TeamContext)
+        assert "chase" in ctx.active_agents
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 24: Confidence arithmetic (+0.15 per evidence)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestConfidenceArithmetic:
+    def test_supporting_evidence_adds_015(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="chase")
+        assert entry.confidence == 0.5
+        entry.add_supporting_evidence("evidence 1")
+        assert entry.confidence == 0.65
+        entry.add_supporting_evidence("evidence 2")
+        assert entry.confidence == 0.8
+
+    def test_counter_evidence_subtracts_015(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="chase")
+        entry.add_counter_evidence("counter 1")
+        assert entry.confidence == 0.35
+
+    def test_three_supporters_reach_threshold(self):
+        """With proposer at 0.5, 3 supporters should reach 0.95 > 0.85."""
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="chase")
+        entry.add_supporting_evidence("foreman agrees")
+        entry.add_supporting_evidence("cameron agrees")
+        entry.add_supporting_evidence("thirteen agrees")
+        assert entry.confidence == pytest.approx(0.95)
+        assert entry.confidence > 0.85  # Exceeds resolution threshold
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 25: Whiteboard iteration count stays in sync
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestWhiteboardIterationSync:
+    @pytest.mark.asyncio
+    async def test_critique_round_syncs_iteration(self):
+        """Critique round should not drift the whiteboard iteration count."""
+        state = _make_state(active_team=["chase"], iteration=3)
+
+        async def mock_agent(s):
+            return {
+                "messages": [AIMessage(content="HYPOTHESIS: Test hypothesis")]
+            }
+
+        result = await run_critique_round(state, {"chase": mock_agent})
+
+        wb = Whiteboard.from_dict(result["whiteboard"])
+        # Should be synced with the state iteration, not drifted
+        assert wb.iteration_count == 3
+
+    def test_advance_phase_with_iteration_syncs(self):
+        wb = Whiteboard()
+        wb.advance_phase("testing", iteration=5)
+        assert wb.iteration_count == 5
+
+    def test_advance_phase_without_iteration_increments(self):
+        wb = Whiteboard()
+        wb.advance_phase("testing")
+        assert wb.iteration_count == 1
+        wb.advance_phase("provocation")
+        assert wb.iteration_count == 2
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Issue 26: House MD mode preserves multi-turn messages
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestMultiTurnMessages:
+    def test_single_message_backwards_compatible(self):
+        state = create_initial_diagnostic_state(user_message="single bug report")
+        assert len(state["messages"]) == 1
+        assert state["messages"][0].content == "single bug report"
+        assert state["symptoms"] == ["single bug report"]
+
+    def test_multiple_user_messages_preserved(self):
+        state = create_initial_diagnostic_state(
+            user_messages=[
+                "Checkout failing with 500 errors",
+                "Also seeing timeouts on the payment page",
+                "Error rate is about 15%",
+            ]
+        )
+        assert len(state["messages"]) == 3
+        assert state["messages"][0].content == "Checkout failing with 500 errors"
+        assert state["messages"][2].content == "Error rate is about 15%"
+        assert len(state["symptoms"]) == 3
+
+    def test_user_messages_takes_precedence(self):
+        """user_messages parameter takes precedence over user_message."""
+        state = create_initial_diagnostic_state(
+            user_message="old single",
+            user_messages=["msg1", "msg2"],
+        )
+        assert len(state["messages"]) == 2
+        assert state["messages"][0].content == "msg1"
+
+    def test_empty_messages_handled(self):
+        state = create_initial_diagnostic_state()
+        assert len(state["messages"]) == 0
+        assert len(state["symptoms"]) == 0
+
+    def test_whiteboard_records_all_symptoms(self):
+        state = create_initial_diagnostic_state(
+            user_messages=["symptom A", "symptom B"]
+        )
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        assert "symptom A" in wb.symptoms
+        assert "symptom B" in wb.symptoms

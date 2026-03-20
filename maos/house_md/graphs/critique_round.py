@@ -14,6 +14,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from maos.house_md.graphs.states import DiagnosticState
 from maos.house_md.memory.whiteboard import Whiteboard
+from maos.house_md.personalities.base import PersonalityWrapper, TeamContext
 
 logger = structlog.get_logger()
 
@@ -46,6 +47,19 @@ async def run_critique_round(
         if agent_name not in agent_nodes:
             continue
 
+        # Set team context on personality wrappers so the personality
+        # prompt includes active team information during critique.
+        agent_fn = agent_nodes[agent_name]
+        if isinstance(agent_fn, PersonalityWrapper):
+            agent_fn.team_context = TeamContext(
+                active_agents=active_team,
+                hypotheses=[
+                    h.to_dict() for h in whiteboard.get_active_hypotheses()
+                ],
+                current_phase=state.get("current_phase", "differential"),
+                whiteboard=whiteboard,
+            )
+
         critique_prompt = _build_critique_prompt(whiteboard, agent_name)
         critique_state = {
             **state,
@@ -54,7 +68,6 @@ async def run_critique_round(
             ],
         }
 
-        agent_fn = agent_nodes[agent_name]
         if hasattr(agent_fn, "ainvoke"):
             result = await agent_fn.ainvoke(critique_state)
         elif callable(agent_fn):
@@ -113,7 +126,9 @@ async def run_critique_round(
                         proposer=agent_name,
                     )
 
-    whiteboard.advance_phase("post_critique")
+    whiteboard.advance_phase(
+        "post_critique", iteration=state.get("iteration", 0)
+    )
 
     return {
         **state,

@@ -22,6 +22,7 @@ from langgraph.prebuilt import create_react_agent
 
 from maos.house_md.graphs.critique_round import (
     extract_environmental_findings,
+    extract_hypotheses,
     run_critique_round,
 )
 from maos.house_md.graphs.states import DiagnosticPhase, DiagnosticState
@@ -202,11 +203,22 @@ class HouseMDGraphFactory:
 
             house = personality_agents.get("house")
             if house:
+                provocation_prompt = (
+                    f"{context}\n\n"
+                    f"IMPORTANT: When proposing or refining a hypothesis, "
+                    f"use this format:\nHYPOTHESIS: <your hypothesis here>"
+                )
                 result = await _invoke_agent(
-                    house, state, context, "house",
+                    house, state, provocation_prompt, "house",
                     max_context_messages=max_context_messages,
                 )
                 response_content = _extract_content(result)
+
+                # Extract hypotheses from House's provocation
+                _update_whiteboard_hypotheses(
+                    whiteboard, response_content, "house"
+                )
+
                 prov_msg = AIMessage(
                     content=f"[House - Provocation] {response_content}",
                     name="house",
@@ -241,13 +253,21 @@ class HouseMDGraphFactory:
                 prompt = (
                     f"Run tests against these hypotheses: {test_summary}. "
                     f"For each, explain what test you'd run and the expected "
-                    f"result. Rule out what you can."
+                    f"result. Rule out what you can.\n\n"
+                    f"IMPORTANT: When you reach a conclusion, use this format:\n"
+                    f"HYPOTHESIS: <your conclusion here>"
                 )
                 result = await _invoke_agent(
                     chase, state, prompt, "chase",
                     max_context_messages=max_context_messages,
                 )
                 response_content = _extract_content(result)
+
+                # Extract hypotheses from test results and update whiteboard
+                _update_whiteboard_hypotheses(
+                    whiteboard, response_content, "chase"
+                )
+
                 test_msg = AIMessage(
                     content=f"[Chase - Testing] {response_content}",
                     name="chase",
@@ -340,13 +360,21 @@ class HouseMDGraphFactory:
                     "something seemingly unrelated, then make a connection "
                     "the team hasn't considered. Trigger a breakthrough.\n\n"
                     f"Current symptoms: {', '.join(symptoms)}\n"
-                    f"Whiteboard: {whiteboard.summary()}"
+                    f"Whiteboard: {whiteboard.summary()}\n\n"
+                    f"IMPORTANT: When you have an insight, use this format:\n"
+                    f"HYPOTHESIS: <your insight here>"
                 )
                 result = await _invoke_agent(
                     wilson, state, prompt, "wilson",
                     max_context_messages=max_context_messages,
                 )
                 response_content = _extract_content(result)
+
+                # Extract hypotheses from Wilson's insight
+                _update_whiteboard_hypotheses(
+                    whiteboard, response_content, "wilson"
+                )
+
                 wilson_msg = AIMessage(
                     content=f"[Wilson - Consult] {response_content}",
                     name="wilson",
@@ -456,6 +484,12 @@ class HouseMDGraphFactory:
             if not whiteboard.environmental_findings and iteration >= 2:
                 return "environmental"
 
+            # Alternate between testing and differential so the team
+            # gets periodic critique rounds (structured debate) instead
+            # of looping provocation ↔ testing forever.
+            if iteration > 1 and iteration % 2 == 0:
+                return "differential"
+
             return "testing"
 
         # ── Assemble graph ───────────────────────────────────────────
@@ -478,6 +512,7 @@ class HouseMDGraphFactory:
                 "environmental": "environmental",
                 "wilson_consult": "wilson_consult",
                 "resolution": "resolution",
+                "differential": "differential",
             },
         )
         workflow.add_edge("testing", "provocation")
@@ -664,6 +699,37 @@ async def _invoke_agent(
                 )
             ]
         }
+
+
+def _update_whiteboard_hypotheses(
+    whiteboard: Whiteboard,
+    content: str,
+    agent_name: str,
+) -> None:
+    """Extract hypotheses from agent response and update the whiteboard.
+
+    Reuses the same extraction logic as the critique round so that
+    hypotheses proposed during testing, provocation, or Wilson consult
+    are also tracked on the whiteboard.
+    """
+    from maos.house_md.graphs.critique_round import (
+        _find_existing_hypothesis,
+    )
+
+    for hyp in extract_hypotheses(content, agent_name):
+        existing = _find_existing_hypothesis(whiteboard, hyp["hypothesis"])
+        if existing:
+            existing.add_supporting_evidence(
+                f"{agent_name} supports: {hyp.get('evidence', 'agrees')}"
+            )
+        else:
+            entry = whiteboard.add_hypothesis(
+                hypothesis=hyp["hypothesis"],
+                proposer=agent_name,
+                confidence=hyp.get("confidence", 0.5),
+            )
+            if hyp.get("evidence"):
+                entry.add_supporting_evidence(hyp["evidence"])
 
 
 def _extract_content(result: dict[str, Any]) -> str:

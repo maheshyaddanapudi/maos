@@ -323,7 +323,7 @@ def resolution_node(state: DiagnosticState) -> dict[str, Any]:
 
 def route_after_provocation(
     state: DiagnosticState,
-) -> Literal["testing", "environmental", "wilson_consult", "resolution"]:
+) -> Literal["testing", "environmental", "wilson_consult", "resolution", "differential"]:
     """Route after House's provocation based on diagnostic state.
 
     Decision logic:
@@ -331,6 +331,7 @@ def route_after_provocation(
     - If a hypothesis is confirmed (confidence > 0.85) → resolution
     - If stuck (no active hypotheses) → wilson_consult
     - If environmental factors not yet investigated → environmental
+    - Even iterations > 1 → differential (periodic critique rounds)
     - Default → testing
     """
     iteration = state.get("iteration", 0)
@@ -347,8 +348,16 @@ def route_after_provocation(
     if not active:
         return "wilson_consult"
 
-    if not whiteboard.environmental_findings and iteration >= 2:
+    # Only attempt environmental investigation once (at iteration 2).
+    # Using == instead of >= prevents a loop when environmental_node
+    # finds nothing.
+    if not whiteboard.environmental_findings and iteration == 2:
         return "environmental"
+
+    # Alternate between testing and differential so the team
+    # gets periodic critique rounds (structured debate).
+    if iteration > 1 and iteration % 2 == 0:
+        return "differential"
 
     return "testing"
 
@@ -390,6 +399,7 @@ def create_diagnostic_graph() -> StateGraph:
             "environmental": "environmental",
             "wilson_consult": "wilson_consult",
             "resolution": "resolution",
+            "differential": "differential",
         },
     )
     workflow.add_edge("testing", "provocation")

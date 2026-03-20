@@ -83,11 +83,19 @@ async def run_critique_round(
             ],
         }
 
-        if hasattr(agent_fn, "ainvoke"):
-            result = await agent_fn.ainvoke(critique_state)
-        elif callable(agent_fn):
-            result = await agent_fn(critique_state)
-        else:
+        try:
+            if hasattr(agent_fn, "ainvoke"):
+                result = await agent_fn.ainvoke(critique_state)
+            elif callable(agent_fn):
+                result = await agent_fn(critique_state)
+            else:
+                continue
+        except Exception as e:
+            logger.error(
+                "critique_agent_failed",
+                agent=agent_name,
+                error=str(e),
+            )
             continue
 
         response_messages = result.get("messages", [])
@@ -172,12 +180,17 @@ async def run_critique_round(
         "post_critique", iteration=state.get("iteration", 0)
     )
 
+    # Explicitly copy mutable fields from state to avoid shared references
+    # that could violate LangGraph's "never mutate state in place" rule.
     return {
         **state,
         "messages": new_messages,
         "hypotheses": new_hypotheses,
         "agent_beliefs": agent_beliefs,
         "whiteboard": whiteboard.to_dict(),
+        "symptoms": list(state.get("symptoms", [])),
+        "evidence": dict(state.get("evidence", {})),
+        "active_team": list(state.get("active_team", [])),
     }
 
 

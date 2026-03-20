@@ -1,4 +1,4 @@
-"""Tests for Issues 7-26 + Round 4 + Round 5 fixes.
+"""Tests for Issues 7-26 + Round 4 + Round 5 + Round 6/7 fixes.
 
 Issue 7:  Whiteboard hypotheses populated from agent responses
 Issue 8:  Trimmed message history in _invoke_agent
@@ -31,6 +31,18 @@ Round 5 Issue 35: Personality slot assignment uses set tracking
 Round 5 Issue 36: Duplicate evidence skipped in confidence updates
 Round 5 Issue 37: Empty active_team logged in critique round
 Round 5 Issue 38: Fragile personality fallback replaced with generic config
+Round 6/7 Issue 39: Deep copy challenges dicts in WhiteboardEntry.from_dict
+Round 6/7 Issue 40: _extract_content validates input type
+Round 6/7 Issue 41: Floating-point confidence rounding
+Round 6/7 Issue 43: try-except in critique round agent invocation
+Round 6/7 Issue 44: Environmental loop trap fixed (iteration == 2 not >= 2)
+Round 6/7 Issue 45: Routing divergence synced between factory and diff_diagnosis
+Round 6/7 Issue 46: PersonalityWrapper.invoke() no longer mutates result dict
+Round 6/7 Issue 47: critique_round copies mutable state fields
+Round 6/7 Issue 48: Route tests actually call routing function
+Round 6/7 Issue 51: Confidence boundary test at exactly 0.85
+Round 6/7 Issue 53: Terminal state transitions (confirm/rule_out twice)
+Round 6/7 Issue 54: Whiteboard round-trip serialization
 """
 
 from __future__ import annotations
@@ -1115,33 +1127,30 @@ class TestRouteReentrytoDifferential:
 
     def test_iteration_2_even_goes_to_differential(self):
         """Even iterations > 1 should route to differential for critique."""
-        # We need to simulate what route_after_provocation does
-        from maos.house_md.memory.whiteboard import Whiteboard
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
 
         state = self._make_routing_state(iteration=2, has_env=True)
-        wb = Whiteboard.from_dict(state["whiteboard"])
-        iteration = state["iteration"]
-        top = wb.get_top_hypothesis()
-
-        # Not at max iterations, not high confidence, has active hyps,
-        # has env findings, iteration is even and > 1
-        assert iteration > 1
-        assert iteration % 2 == 0
-        assert top is not None
-        assert top.confidence <= 0.85
+        assert route_after_provocation(state) == "differential"
 
     def test_iteration_3_odd_goes_to_testing(self):
         """Odd iterations should route to testing."""
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
         state = self._make_routing_state(iteration=3, has_env=True)
-        # iteration 3 is odd, so should go to testing
-        assert state["iteration"] % 2 != 0
+        assert route_after_provocation(state) == "testing"
 
     def test_high_confidence_goes_to_resolution(self):
         """High confidence should always go to resolution."""
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
         state = self._make_routing_state(iteration=2, confidence=0.9)
-        wb = Whiteboard.from_dict(state["whiteboard"])
-        top = wb.get_top_hypothesis()
-        assert top.confidence > 0.85
+        assert route_after_provocation(state) == "resolution"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1740,7 +1749,8 @@ class TestFromDictCopiesLists:
         wb.add_environmental_finding("finding B")
         assert len(source_data["environmental_findings"]) == 1
 
-    def test_state_dict_not_mutated_by_critique_round(self):
+    @pytest.mark.asyncio
+    async def test_state_dict_not_mutated_by_critique_round(self):
         """The original state dict should not be mutated by critique round."""
         wb = Whiteboard()
         wb.add_hypothesis("test hyp", "house", confidence=0.5)
@@ -1752,8 +1762,6 @@ class TestFromDictCopiesLists:
         original_entries = state["whiteboard"]["entries"]
         original_evidence_len = len(original_entries[0]["evidence_for"])
 
-        import asyncio
-
         async def mock_agent(s):
             return {
                 "messages": [AIMessage(
@@ -1761,9 +1769,7 @@ class TestFromDictCopiesLists:
                 )]
             }
 
-        asyncio.get_event_loop().run_until_complete(
-            run_critique_round(state, {"chase": mock_agent})
-        )
+        await run_critique_round(state, {"chase": mock_agent})
 
         # Original state dict must not have been mutated
         assert len(original_entries[0]["evidence_for"]) == original_evidence_len
@@ -1950,3 +1956,404 @@ class TestPersonalityFallback:
         )
         assert wrapper.personality.name == "unknown_agent"
         assert wrapper.personality.role_description == "Team member"
+
+
+# ── Round 6/7: Issues 39-54 ────────────────────────────────────────────────
+
+
+class TestDeepCopyChallengesDicts:
+    """Issue 39: from_dict must deep-copy inner challenge dicts."""
+
+    def test_challenge_dicts_are_independent(self):
+        data = {
+            "hypothesis": "test",
+            "proposer": "house",
+            "challenges": [{"challenger": "foreman", "challenge": "disagree"}],
+        }
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry.from_dict(data)
+        # Mutating the reconstructed entry's challenge dict must not
+        # affect the source data.
+        entry.challenges[0]["challenger"] = "chase"
+        assert data["challenges"][0]["challenger"] == "foreman"
+
+
+class TestExtractContentTypeValidation:
+    """Issue 40: _extract_content handles non-dict input."""
+
+    def test_none_input(self):
+        assert _extract_content(None) == "No response generated."
+
+    def test_string_input(self):
+        assert _extract_content("not a dict") == "No response generated."
+
+    def test_list_input(self):
+        assert _extract_content([1, 2, 3]) == "No response generated."
+
+
+class TestConfidenceRounding:
+    """Issue 41: Confidence values are rounded to avoid float drift."""
+
+    def test_no_float_drift_after_multiple_increments(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="house", confidence=0.5)
+        for i in range(4):
+            entry.add_supporting_evidence(f"evidence {i}")
+        # 0.5 + 4*0.15 = 1.1 → capped at 1.0
+        assert entry.confidence == 1.0
+
+    def test_no_float_drift_after_multiple_decrements(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="house", confidence=0.5)
+        for i in range(4):
+            entry.add_counter_evidence(f"counter {i}")
+        # 0.5 - 4*0.15 = -0.1 → floored at 0.0
+        assert entry.confidence == 0.0
+
+    def test_intermediate_values_are_clean(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="house", confidence=0.5)
+        entry.add_supporting_evidence("ev1")
+        assert entry.confidence == 0.65  # Exact, not 0.6500000000000001
+        entry.add_counter_evidence("counter1")
+        assert entry.confidence == 0.5  # Should round-trip cleanly
+
+
+class TestCritiqueRoundErrorHandling:
+    """Issue 43: Critique round handles agent exceptions gracefully."""
+
+    @pytest.mark.asyncio
+    async def test_failing_agent_does_not_crash_round(self):
+        state = _make_state(active_team=["house", "chase"])
+
+        async def good_agent(s):
+            return {"messages": [AIMessage(content="I agree")]}
+
+        async def bad_agent(s):
+            raise RuntimeError("Agent exploded")
+
+        result = await run_critique_round(
+            state, {"house": good_agent, "chase": bad_agent}
+        )
+        # House succeeded, chase failed gracefully
+        assert "house" in result["agent_beliefs"]
+        assert "chase" not in result["agent_beliefs"]
+
+    @pytest.mark.asyncio
+    async def test_all_agents_fail_returns_empty(self):
+        state = _make_state(active_team=["house"])
+
+        async def bad_agent(s):
+            raise ValueError("boom")
+
+        result = await run_critique_round(state, {"house": bad_agent})
+        assert result["agent_beliefs"] == {}
+        assert result["messages"] == []
+
+
+class TestEnvironmentalLoopFix:
+    """Issue 44: Environmental route only fires at iteration == 2."""
+
+    def test_iteration_2_no_findings_goes_to_environmental(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=2)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Something", "chase", confidence=0.5)
+        state["whiteboard"] = wb.to_dict()
+        assert route_after_provocation(state) == "environmental"
+
+    def test_iteration_3_no_findings_does_not_go_to_environmental(self):
+        """Previously this would loop back to environmental forever."""
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=3)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Something", "chase", confidence=0.5)
+        state["whiteboard"] = wb.to_dict()
+        result = route_after_provocation(state)
+        assert result != "environmental"
+
+    def test_iteration_4_no_findings_does_not_go_to_environmental(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=4)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Something", "chase", confidence=0.5)
+        state["whiteboard"] = wb.to_dict()
+        result = route_after_provocation(state)
+        assert result != "environmental"
+
+
+class TestRoutingDivergenceSync:
+    """Issue 45: differential_diagnosis.py route now includes 'differential'."""
+
+    def test_even_iteration_routes_to_differential(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=4)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Something", "chase", confidence=0.5)
+        wb.add_environmental_finding("Found something")
+        state["whiteboard"] = wb.to_dict()
+        assert route_after_provocation(state) == "differential"
+
+    def test_odd_iteration_routes_to_testing(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=3)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Something", "chase", confidence=0.5)
+        wb.add_environmental_finding("Found something")
+        state["whiteboard"] = wb.to_dict()
+        assert route_after_provocation(state) == "testing"
+
+    def test_graph_has_differential_in_edges(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            create_diagnostic_graph,
+        )
+
+        graph = create_diagnostic_graph()
+        compiled = graph.compile()
+        assert compiled is not None
+
+
+class TestPersonalityWrapperResultNotMutated:
+    """Issue 46: invoke() must not mutate the base agent's result dict."""
+
+    @pytest.mark.asyncio
+    async def test_result_dict_not_mutated(self):
+        original_result = {"messages": [AIMessage(content="test")]}
+
+        async def mock_agent(s):
+            return original_result
+
+        wrapper = PersonalityWrapper(
+            base_agent=mock_agent,
+            personality=PersonalityConfig(
+                name="test",
+                role_description="Tester",
+                system_prompt_additions="Test.",
+            ),
+        )
+        result = await wrapper.invoke({"messages": []})
+        # The returned result has metadata
+        assert "metadata" in result
+        assert result["metadata"]["personality"] == "test"
+        # But the original dict was NOT mutated
+        assert "metadata" not in original_result
+
+
+class TestCritiqueRoundCopiesMutableFields:
+    """Issue 47: critique_round copies mutable fields from state."""
+
+    @pytest.mark.asyncio
+    async def test_symptoms_not_shared(self):
+        state = _make_state(
+            active_team=["house"],
+            symptoms=["headache", "fever"],
+        )
+        original_symptoms = state["symptoms"]
+
+        async def mock_agent(s):
+            return {"messages": [AIMessage(content="Noted")]}
+
+        result = await run_critique_round(state, {"house": mock_agent})
+        # Result symptoms should be a copy, not the same list
+        assert result["symptoms"] == original_symptoms
+        assert result["symptoms"] is not original_symptoms
+
+    @pytest.mark.asyncio
+    async def test_active_team_not_shared(self):
+        state = _make_state(active_team=["house"])
+        original_team = state["active_team"]
+
+        async def mock_agent(s):
+            return {"messages": [AIMessage(content="OK")]}
+
+        result = await run_critique_round(state, {"house": mock_agent})
+        assert result["active_team"] is not original_team
+
+
+class TestRouteActuallyCalled:
+    """Issue 48: Route tests must actually call route_after_provocation."""
+
+    def test_iteration_2_even_goes_to_differential(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=2)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Something", "chase", confidence=0.5)
+        wb.add_environmental_finding("Found something")
+        state["whiteboard"] = wb.to_dict()
+        # Actually call the function
+        assert route_after_provocation(state) == "differential"
+
+    def test_iteration_3_odd_goes_to_testing(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=3)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Something", "chase", confidence=0.5)
+        wb.add_environmental_finding("Found something")
+        state["whiteboard"] = wb.to_dict()
+        assert route_after_provocation(state) == "testing"
+
+    def test_high_confidence_goes_to_resolution(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=1)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Answer", "house", confidence=0.9)
+        state["whiteboard"] = wb.to_dict()
+        assert route_after_provocation(state) == "resolution"
+
+
+class TestConfidenceBoundary:
+    """Issue 51: Boundary test for confidence exactly at 0.85."""
+
+    def test_confidence_exactly_085_does_not_trigger_resolution(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=1)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Almost there", "house", confidence=0.85)
+        state["whiteboard"] = wb.to_dict()
+        # > 0.85, not >=, so exactly 0.85 should NOT go to resolution
+        assert route_after_provocation(state) != "resolution"
+
+    def test_confidence_086_triggers_resolution(self):
+        from maos.house_md.graphs.differential_diagnosis import (
+            route_after_provocation,
+        )
+
+        state = _make_state(iteration=1)
+        wb = Whiteboard.from_dict(state["whiteboard"])
+        wb.add_hypothesis("Got it", "house", confidence=0.86)
+        state["whiteboard"] = wb.to_dict()
+        assert route_after_provocation(state) == "resolution"
+
+
+class TestTerminalStateTransitions:
+    """Issue 53: Terminal state transitions (confirm/rule_out edge cases)."""
+
+    def test_confirm_twice_is_idempotent(self):
+        from maos.house_md.memory.whiteboard import (
+            HypothesisStatus,
+            WhiteboardEntry,
+        )
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="house", confidence=0.7)
+        entry.confirm()
+        assert entry.confidence == 1.0
+        assert entry.status == HypothesisStatus.CONFIRMED
+        entry.confirm()  # Second confirm
+        assert entry.confidence == 1.0
+        assert entry.status == HypothesisStatus.CONFIRMED
+
+    def test_rule_out_twice_is_safe(self):
+        from maos.house_md.memory.whiteboard import (
+            HypothesisStatus,
+            WhiteboardEntry,
+        )
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="house", confidence=0.7)
+        entry.rule_out("reason 1")
+        assert entry.confidence == 0.0
+        assert entry.status == HypothesisStatus.RULED_OUT
+        entry.rule_out("reason 2")
+        assert entry.confidence == 0.0
+        assert entry.status == HypothesisStatus.RULED_OUT
+        # Both reasons recorded
+        assert len(entry.evidence_against) == 2
+
+    def test_add_evidence_after_rule_out(self):
+        from maos.house_md.memory.whiteboard import WhiteboardEntry
+
+        entry = WhiteboardEntry(hypothesis="test", proposer="house", confidence=0.7)
+        entry.rule_out("disproved")
+        assert entry.confidence == 0.0
+        # Adding supporting evidence after rule-out — confidence increases
+        entry.add_supporting_evidence("new finding")
+        assert entry.confidence == 0.15  # 0.0 + 0.15
+
+
+class TestWhiteboardRoundTrip:
+    """Issue 54: Whiteboard serialization round-trip preserves all data."""
+
+    def test_whiteboard_entry_round_trip(self):
+        from maos.house_md.memory.whiteboard import (
+            HypothesisStatus,
+            WhiteboardEntry,
+        )
+
+        entry = WhiteboardEntry(
+            hypothesis="memory leak",
+            proposer="foreman",
+            confidence=0.7,
+            status=HypothesisStatus.SUPPORTED,
+            evidence_for=["profiler shows growth"],
+            evidence_against=["no OOM errors"],
+            challenges=[{"challenger": "chase", "challenge": "not conclusive"}],
+            tests_assigned=["heap dump"],
+            entry_id="abc12345",
+        )
+        d = entry.to_dict()
+        restored = WhiteboardEntry.from_dict(d)
+        assert restored.hypothesis == entry.hypothesis
+        assert restored.proposer == entry.proposer
+        assert restored.confidence == entry.confidence
+        assert restored.status == entry.status
+        assert restored.evidence_for == entry.evidence_for
+        assert restored.evidence_against == entry.evidence_against
+        assert restored.challenges == entry.challenges
+        assert restored.tests_assigned == entry.tests_assigned
+        assert restored.entry_id == entry.entry_id
+
+    def test_whiteboard_round_trip(self):
+        wb = Whiteboard()
+        wb.add_symptom("CPU spike")
+        wb.add_environmental_finding("recent deploy")
+        wb.add_hypothesis("memory leak", "foreman", confidence=0.6)
+        wb.advance_phase("differential", iteration=2)
+
+        d = wb.to_dict()
+        restored = Whiteboard.from_dict(d)
+        assert restored.session_id == wb.session_id
+        assert restored.current_phase == wb.current_phase
+        assert restored.iteration_count == wb.iteration_count
+        assert restored.symptoms == wb.symptoms
+        assert restored.environmental_findings == wb.environmental_findings
+        assert len(restored.entries) == len(wb.entries)
+        assert restored.entries[0].hypothesis == wb.entries[0].hypothesis
+
+    def test_round_trip_is_stable(self):
+        """to_dict → from_dict → to_dict should produce identical output."""
+        wb = Whiteboard()
+        wb.add_hypothesis("test", "house", confidence=0.5)
+        wb.add_symptom("error")
+        d1 = wb.to_dict()
+        d2 = Whiteboard.from_dict(d1).to_dict()
+        assert d1 == d2

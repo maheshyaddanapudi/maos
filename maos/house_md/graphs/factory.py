@@ -134,18 +134,13 @@ class HouseMDGraphFactory:
         # ── Node: differential ───────────────────────────────────────
         async def differential_node(state: DiagnosticState) -> dict[str, Any]:
             """Team brainstorms hypotheses via critique round."""
-            whiteboard = Whiteboard.from_dict(state["whiteboard"])
-            iteration = state.get("iteration", 0)
-            whiteboard.advance_phase(
-                DiagnosticPhase.DIFFERENTIAL.value, iteration
-            )
-
-            # Run structured critique round with real agents
+            # Run structured critique round with real agents.
+            # Phase advancement happens inside run_critique_round().
             critique_result = await run_critique_round(
                 state, personality_agents
             )
 
-            # Merge critique results into whiteboard
+            # Reconstruct whiteboard from critique result
             new_whiteboard = Whiteboard.from_dict(
                 critique_result.get("whiteboard", state["whiteboard"])
             )
@@ -491,7 +486,11 @@ class HouseMDGraphFactory:
             if not active:
                 return "wilson_consult"
 
-            if not whiteboard.environmental_findings and iteration >= 2:
+            # Only attempt environmental investigation once (at iteration 2).
+            # Using == instead of >= prevents a loop when environmental_node
+            # finds nothing — previously the graph would repeatedly route
+            # to environmental on every subsequent iteration.
+            if not whiteboard.environmental_findings and iteration == 2:
                 return "environmental"
 
             # Alternate between testing and differential so the team
@@ -806,6 +805,8 @@ def _update_whiteboard_hypotheses(
 
 def _extract_content(result: dict[str, Any]) -> str:
     """Extract the last AI message content from an agent result."""
+    if not isinstance(result, dict):
+        return "No response generated."
     messages = result.get("messages", [])
     for msg in reversed(messages):
         if isinstance(msg, AIMessage):

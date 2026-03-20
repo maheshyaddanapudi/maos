@@ -212,11 +212,17 @@ class PersonalityWrapper:
             )
 
         if isinstance(result, dict):
-            result.setdefault("metadata", {})
-            result["metadata"]["personality"] = self.personality.name
-            result["metadata"]["biases"] = [
-                b.value for b in self.personality.cognitive_biases
-            ]
+            # Avoid mutating the dict returned by the base agent.
+            result = {
+                **result,
+                "metadata": {
+                    **result.get("metadata", {}),
+                    "personality": self.personality.name,
+                    "biases": [
+                        b.value for b in self.personality.cognitive_biases
+                    ],
+                },
+            }
 
         self._invocation_count += 1
         return result

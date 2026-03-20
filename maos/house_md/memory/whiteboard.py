@@ -46,14 +46,14 @@ class WhiteboardEntry:
         if evidence in self.evidence_for:
             return
         self.evidence_for.append(evidence)
-        self.confidence = min(1.0, self.confidence + 0.15)
+        self.confidence = round(min(1.0, self.confidence + 0.15), 2)
 
     def add_counter_evidence(self, evidence: str) -> None:
         # Skip duplicate evidence to prevent artificial confidence deflation.
         if evidence in self.evidence_against:
             return
         self.evidence_against.append(evidence)
-        self.confidence = max(0.0, self.confidence - 0.15)
+        self.confidence = round(max(0.0, self.confidence - 0.15), 2)
 
     def add_challenge(self, challenger: str, challenge: str) -> None:
         self.challenges.append({"challenger": challenger, "challenge": challenge})
@@ -92,7 +92,7 @@ class WhiteboardEntry:
             status=HypothesisStatus(data.get("status", "proposed")),
             evidence_for=list(data.get("evidence_for", [])),
             evidence_against=list(data.get("evidence_against", [])),
-            challenges=list(data.get("challenges", [])),
+            challenges=[dict(c) for c in data.get("challenges", [])],
             tests_assigned=list(data.get("tests_assigned", [])),
             created_at=data.get("created_at", ""),
             entry_id=data.get("entry_id", str(uuid.uuid4())[:8]),

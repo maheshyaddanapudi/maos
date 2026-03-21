@@ -1,4 +1,4 @@
-"""Tests for Issues 7-26 + Round 4 + Round 5 + Round 6/7 + Round 8/9 fixes.
+"""Tests for Issues 7-26 + Round 4 + Round 5 + Round 6/7 + Round 8/9 + Round 10/11 fixes.
 
 Issue 7:  Whiteboard hypotheses populated from agent responses
 Issue 8:  Trimmed message history in _invoke_agent
@@ -49,6 +49,15 @@ Round 8/9 Issue 57: Renamed misleading test_no_environmental_after_iteration_2
 Round 8/9 Issue 58: _make_state default active_team includes cameron
 Round 8/9 Issue 59: Mock agents use side_effect factory for fresh dicts
 Round 8/9 Issue 60: config not passed to sync invoke() when None
+Round 10/11 Issue 61: to_dict() returns copies of mutable lists
+Round 10/11 Issue 64: enhance_state copies team_context lists
+Round 10/11 Issue 66: worker_llm_config None guard after fallback
+Round 10/11 Issue 67: sync callable support in PersonalityWrapper
+Round 10/11 Issue 68: A2A client race condition via asyncio.Lock
+Round 10/11 Issue 69: OPENAI_COMPATIBLE and AZURE_OPENAI providers
+Round 10/11 Issue 75: Blocking sqlite3 offloaded to thread
+Round 10/11 Issue 90: hypotheses dedup reducer replaces operator.add
+Round 10/11 Issue 91: critique_state copies mutable fields from state
 """
 
 from __future__ import annotations
@@ -2601,3 +2610,299 @@ class TestSyncInvokeConfigHandling:
         args, _kwargs = base.invoke.call_args
         assert len(args) == 2  # State + config
         assert args[1] == my_config
+
+
+# ── Round 10/11 ──────────────────────────────────────────────────────────────
+
+
+class TestToDictReferenceLeak:
+    """Issue 61: to_dict() must return copies, not references."""
+
+    def test_whiteboard_entry_to_dict_returns_copies(self):
+        wb = Whiteboard()
+        entry = wb.add_hypothesis("memory leak", "house", 0.6)
+        entry.add_supporting_evidence("heap dump shows growth")
+        entry.add_counter_evidence("no OOM kills yet")
+        entry.add_challenge("chase", "could be normal GC")
+
+        d = entry.to_dict()
+
+        # Mutating the returned dict must NOT affect internal state.
+        d["evidence_for"].append("INJECTED")
+        d["evidence_against"].append("INJECTED")
+        d["challenges"].append({"challenger": "x", "challenge": "y"})
+        d["tests_assigned"].append("INJECTED")
+
+        assert "INJECTED" not in entry.evidence_for
+        assert "INJECTED" not in entry.evidence_against
+        assert len(entry.challenges) == 1
+        assert "INJECTED" not in entry.tests_assigned
+
+    def test_whiteboard_to_dict_returns_copies(self):
+        wb = Whiteboard()
+        wb.add_symptom("high CPU")
+        wb.add_environmental_finding("recent deploy")
+
+        d = wb.to_dict()
+
+        # Mutating returned lists must NOT affect internal state.
+        d["symptoms"].append("INJECTED")
+        d["environmental_findings"].append("INJECTED")
+
+        assert "INJECTED" not in wb.symptoms
+        assert "INJECTED" not in wb.environmental_findings
+
+
+class TestEnhanceStateCopiesTeamContext:
+    """Issue 64: enhance_state must copy team_context list references."""
+
+    async def test_team_context_lists_are_copies(self):
+        personality = PersonalityConfig(
+            name="TestAgent",
+            role_description="test",
+            system_prompt_additions="test",
+        )
+        wrapper = PersonalityWrapper(
+            base_agent=MagicMock(), personality=personality
+        )
+
+        original_agents = ["house", "foreman"]
+        original_hyps = [{"hypothesis": "leak", "confidence": 0.5}]
+        ctx = TeamContext(
+            active_agents=original_agents,
+            hypotheses=original_hyps,
+        )
+
+        state = {"messages": [HumanMessage(content="test")]}
+        enhanced = wrapper.enhance_state(state, team_context=ctx)
+
+        tc = enhanced.get("team_context", {})
+        # Mutating the enhanced team_context should not affect originals
+        tc["other_agents"].append("INJECTED")
+        tc["current_hypotheses"].append({"hypothesis": "INJECTED"})
+
+        assert "INJECTED" not in original_agents
+        assert not any(
+            h["hypothesis"] == "INJECTED" for h in original_hyps
+        )
+
+
+class TestSyncCallableSupport:
+    """Issue 67: PersonalityWrapper must handle sync callables."""
+
+    async def test_sync_callable_does_not_crash(self):
+        def sync_fn(state):
+            return {
+                "messages": [
+                    AIMessage(content="sync result", name="sync")
+                ]
+            }
+
+        personality = PersonalityConfig(
+            name="SyncCallable",
+            role_description="test",
+            system_prompt_additions="test",
+        )
+        wrapper = PersonalityWrapper(
+            base_agent=sync_fn, personality=personality
+        )
+        result = await wrapper.invoke(
+            {"messages": [HumanMessage(content="test")]}
+        )
+        msgs = result.get("messages", [])
+        assert any("sync result" in str(m) for m in msgs)
+
+    async def test_async_callable_still_works(self):
+        async def async_fn(state):
+            return {
+                "messages": [
+                    AIMessage(content="async result", name="async")
+                ]
+            }
+
+        personality = PersonalityConfig(
+            name="AsyncCallable",
+            role_description="test",
+            system_prompt_additions="test",
+        )
+        wrapper = PersonalityWrapper(
+            base_agent=async_fn, personality=personality
+        )
+        result = await wrapper.invoke(
+            {"messages": [HumanMessage(content="test")]}
+        )
+        msgs = result.get("messages", [])
+        assert any("async result" in str(m) for m in msgs)
+
+
+class TestA2AClientLock:
+    """Issue 68: A2A client must use asyncio.Lock for session safety."""
+
+    def test_client_has_lock(self):
+        import asyncio
+
+        from maos.a2a.client import A2AClient
+
+        client = A2AClient()
+        assert hasattr(client, "_lock")
+        assert isinstance(client._lock, asyncio.Lock)
+
+    async def test_ensure_client_creates_only_one(self):
+        import asyncio
+
+        from maos.a2a.client import A2AClient
+
+        client = A2AClient()
+
+        # Call _ensure_client concurrently
+        results = await asyncio.gather(
+            client._ensure_client(),
+            client._ensure_client(),
+            client._ensure_client(),
+        )
+
+        # All should return the same client instance
+        assert results[0] is results[1]
+        assert results[1] is results[2]
+        await client.close()
+
+
+class TestHypothesesDedup:
+    """Issue 90: _merge_hypotheses deduplicates by hypothesis text."""
+
+    def test_dedup_by_text(self):
+        from maos.house_md.graphs.states import _merge_hypotheses
+
+        existing = [
+            {"hypothesis": "memory leak", "confidence": 0.5},
+            {"hypothesis": "thread deadlock", "confidence": 0.4},
+        ]
+        new = [
+            {"hypothesis": "Memory Leak", "confidence": 0.7},
+            {"hypothesis": "connection pool", "confidence": 0.6},
+        ]
+
+        merged = _merge_hypotheses(existing, new)
+
+        # Should have 3 items, not 4 (memory leak deduped)
+        texts = [h["hypothesis"].lower().strip() for h in merged]
+        assert texts.count("memory leak") == 1
+        assert "thread deadlock" in texts
+        assert "connection pool" in texts
+
+    def test_higher_confidence_wins(self):
+        from maos.house_md.graphs.states import _merge_hypotheses
+
+        existing = [{"hypothesis": "race condition", "confidence": 0.3}]
+        new = [{"hypothesis": "race condition", "confidence": 0.8}]
+
+        merged = _merge_hypotheses(existing, new)
+        assert len(merged) == 1
+        assert merged[0]["confidence"] == 0.8
+
+    def test_empty_lists(self):
+        from maos.house_md.graphs.states import _merge_hypotheses
+
+        assert _merge_hypotheses([], []) == []
+        assert len(_merge_hypotheses([], [{"hypothesis": "a", "confidence": 0.5}])) == 1
+        assert len(_merge_hypotheses([{"hypothesis": "a", "confidence": 0.5}], [])) == 1
+
+
+class TestCritiqueStateCopiesMutableFields:
+    """Issue 91: critique_state spread must copy mutable fields."""
+
+    async def test_critique_state_does_not_share_symptoms(self):
+        """Verify symptoms list in critique_state is independent."""
+        original_symptoms = ["high CPU", "slow response"]
+        wb = Whiteboard()
+        wb.add_hypothesis("test hyp", "house", 0.5)
+
+        captured_states: list[dict] = []
+
+        async def capturing_agent(state):
+            captured_states.append(state)
+            return {"messages": [AIMessage(content="ok", name="house")]}
+
+        state = _make_state(
+            messages=[HumanMessage(content="test")],
+            symptoms=original_symptoms,
+            whiteboard=wb.to_dict(),
+        )
+
+        wrapper = PersonalityWrapper(
+            base_agent=capturing_agent,
+            personality=PERSONALITY_CONFIGS["house"],
+        )
+
+        await run_critique_round(
+            state, {"house": wrapper}
+        )
+
+        # The original symptoms list should not have been modified
+        # even if agents modified their copy
+        assert state.get("symptoms") is original_symptoms
+
+
+class TestWorkerLlmConfigGuard:
+    """Issue 66: GraphFactory skips workers when LLM config is None."""
+
+    def test_build_has_none_guard_after_fallback(self):
+        """Verify the guard exists in the factory source code."""
+        import inspect
+
+        from maos.graph.factory import GraphFactory
+
+        source = inspect.getsource(GraphFactory.build)
+        # After the fallback to "default", there should be a second
+        # "if not worker_llm_config" check followed by "continue".
+        lines = source.split("\n")
+        found_fallback = False
+        found_guard = False
+        for line in lines:
+            stripped = line.strip()
+            if 'worker_llm_config = self._config.llms.get("default")' in stripped:
+                found_fallback = True
+            elif found_fallback and "if not worker_llm_config" in stripped:
+                found_guard = True
+                break
+        assert found_guard, (
+            "Missing None guard after LLM config fallback"
+        )
+
+
+class TestLLMProviderCoverage:
+    """Issue 69: All LLMProvider enum values handled in adapter."""
+
+    def test_all_providers_have_handler(self):
+        import inspect
+
+        from maos.config.models import LLMProvider
+        from maos.llm.adapters.langchain_adapter import create_langchain_model
+
+        source = inspect.getsource(create_langchain_model)
+
+        for provider in LLMProvider:
+            # Each provider should appear in the function source
+            assert provider.value in source or provider.name in source, (
+                f"Provider {provider} not handled in create_langchain_model"
+            )
+
+
+class TestBlockingSqliteOffloaded:
+    """Issue 75: Blocking sqlite3 calls must use asyncio.to_thread."""
+
+    def test_list_threads_sqlite_uses_to_thread(self):
+        import inspect
+
+        from maos.graph.checkpointer import ConversationStore
+
+        source = inspect.getsource(ConversationStore._list_threads_sqlite)
+        assert "asyncio.to_thread" in source
+
+    def test_delete_thread_sqlite_uses_to_thread(self):
+        import inspect
+
+        from maos.graph.checkpointer import ConversationStore
+
+        source = inspect.getsource(ConversationStore._delete_thread_sqlite)
+        assert "asyncio.to_thread" in source

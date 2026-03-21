@@ -203,6 +203,9 @@ class GraphFactory:
             if not worker_llm_config:
                 logger.warning(f"LLM config not found for worker {name}, using default")
                 worker_llm_config = self._config.llms.get("default")
+            if not worker_llm_config:
+                logger.warning("skipping_worker_no_llm", worker=name)
+                continue
 
             worker_model = self._llm_factory.create_chat_model(worker_llm_config)
 

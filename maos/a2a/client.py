@@ -1,5 +1,6 @@
 """A2A client for communicating with external agents."""
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 
@@ -37,12 +38,14 @@ class A2AClient:
         self._http_client = http_client
         self._owns_client = http_client is None
         self._timeout = timeout
+        self._lock = asyncio.Lock()
 
     async def _ensure_client(self) -> httpx.AsyncClient:
-        """Ensure HTTP client is available."""
-        if self._http_client is None:
-            self._http_client = httpx.AsyncClient(timeout=self._timeout)
-        return self._http_client
+        """Ensure HTTP client is available (thread-safe via asyncio.Lock)."""
+        async with self._lock:
+            if self._http_client is None:
+                self._http_client = httpx.AsyncClient(timeout=self._timeout)
+            return self._http_client
 
     async def send_message(
         self,
@@ -226,7 +229,8 @@ class A2AClient:
         return None
 
     async def close(self) -> None:
-        """Close the HTTP client."""
-        if self._owns_client and self._http_client:
-            await self._http_client.aclose()
-            self._http_client = None
+        """Close the HTTP client (thread-safe via asyncio.Lock)."""
+        async with self._lock:
+            if self._owns_client and self._http_client:
+                await self._http_client.aclose()
+                self._http_client = None

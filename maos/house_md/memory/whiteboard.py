@@ -68,16 +68,18 @@ class WhiteboardEntry:
         self.confidence = 1.0
 
     def to_dict(self) -> dict[str, Any]:
+        # Return copies of mutable lists to prevent callers from mutating
+        # internal state (Issue 61: reference leak).
         return {
             "entry_id": self.entry_id,
             "hypothesis": self.hypothesis,
             "proposer": self.proposer,
             "confidence": self.confidence,
             "status": self.status.value,
-            "evidence_for": self.evidence_for,
-            "evidence_against": self.evidence_against,
-            "challenges": self.challenges,
-            "tests_assigned": self.tests_assigned,
+            "evidence_for": list(self.evidence_for),
+            "evidence_against": list(self.evidence_against),
+            "challenges": [dict(c) for c in self.challenges],
+            "tests_assigned": list(self.tests_assigned),
             "created_at": self.created_at,
         }
 
@@ -221,12 +223,14 @@ class Whiteboard:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
+        # Return copies of mutable lists to prevent callers from mutating
+        # internal state (Issue 61: reference leak).
         return {
             "session_id": self.session_id,
             "current_phase": self.current_phase,
             "iteration_count": self.iteration_count,
-            "symptoms": self.symptoms,
-            "environmental_findings": self.environmental_findings,
+            "symptoms": list(self.symptoms),
+            "environmental_findings": list(self.environmental_findings),
             "entries": [e.to_dict() for e in self.entries],
         }
 

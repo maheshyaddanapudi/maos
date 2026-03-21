@@ -210,42 +210,50 @@ class ConversationStore:
         return threads
 
     async def _list_threads_sqlite(self, limit: int, offset: int) -> list[dict]:
-        """List threads from SQLite database."""
-        import sqlite3
+        """List threads from SQLite database.
 
-        threads = []
-        try:
-            conn = sqlite3.connect(self._config.sqlite_path)
-            cursor = conn.cursor()
+        Runs blocking sqlite3 operations in a thread to avoid blocking
+        the async event loop (Issue 75).
+        """
+        import asyncio
 
-            # Query distinct thread_ids with latest checkpoint
-            cursor.execute("""
-                SELECT DISTINCT
-                    json_extract(config, '$.configurable.thread_id') as thread_id,
-                    MAX(checkpoint_id) as latest_checkpoint,
-                    MAX(created_at) as last_update
-                FROM checkpoints
-                WHERE json_extract(config, '$.configurable.thread_id') IS NOT NULL
-                GROUP BY thread_id
-                ORDER BY last_update DESC
-                LIMIT ? OFFSET ?
-            """, (limit, offset))
+        def _query() -> list[dict]:
+            import sqlite3
 
-            for row in cursor.fetchall():
-                thread_id, checkpoint_id, last_update = row
-                if thread_id:
-                    threads.append({
-                        "thread_id": thread_id,
-                        "checkpoint_id": checkpoint_id,
-                        "last_update": last_update,
-                    })
+            threads = []
+            try:
+                conn = sqlite3.connect(self._config.sqlite_path)
+                cursor = conn.cursor()
 
-            conn.close()
+                cursor.execute("""
+                    SELECT DISTINCT
+                        json_extract(config, '$.configurable.thread_id') as thread_id,
+                        MAX(checkpoint_id) as latest_checkpoint,
+                        MAX(created_at) as last_update
+                    FROM checkpoints
+                    WHERE json_extract(config, '$.configurable.thread_id') IS NOT NULL
+                    GROUP BY thread_id
+                    ORDER BY last_update DESC
+                    LIMIT ? OFFSET ?
+                """, (limit, offset))
 
-        except Exception as e:
-            logger.error("list_threads_sqlite_error", error=str(e))
+                for row in cursor.fetchall():
+                    thread_id, checkpoint_id, last_update = row
+                    if thread_id:
+                        threads.append({
+                            "thread_id": thread_id,
+                            "checkpoint_id": checkpoint_id,
+                            "last_update": last_update,
+                        })
 
-        return threads
+                conn.close()
+
+            except Exception as e:
+                logger.error("list_threads_sqlite_error", error=str(e))
+
+            return threads
+
+        return await asyncio.to_thread(_query)
 
     async def _list_threads_postgres(self, limit: int, offset: int) -> list[dict]:
         """List threads from PostgreSQL database."""
@@ -333,26 +341,35 @@ class ConversationStore:
         return False
 
     async def _delete_thread_sqlite(self, thread_id: str) -> bool:
-        """Delete thread from SQLite."""
-        import sqlite3
+        """Delete thread from SQLite.
 
-        try:
-            conn = sqlite3.connect(self._config.sqlite_path)
-            cursor = conn.cursor()
+        Runs blocking sqlite3 operations in a thread to avoid blocking
+        the async event loop (Issue 75).
+        """
+        import asyncio
 
-            cursor.execute("""
-                DELETE FROM checkpoints
-                WHERE json_extract(config, '$.configurable.thread_id') = ?
-            """, (thread_id,))
+        def _delete() -> bool:
+            import sqlite3
 
-            deleted = cursor.rowcount > 0
-            conn.commit()
-            conn.close()
-            return deleted
+            try:
+                conn = sqlite3.connect(self._config.sqlite_path)
+                cursor = conn.cursor()
 
-        except Exception as e:
-            logger.error("delete_thread_sqlite_error", error=str(e))
-            return False
+                cursor.execute("""
+                    DELETE FROM checkpoints
+                    WHERE json_extract(config, '$.configurable.thread_id') = ?
+                """, (thread_id,))
+
+                deleted = cursor.rowcount > 0
+                conn.commit()
+                conn.close()
+                return deleted
+
+            except Exception as e:
+                logger.error("delete_thread_sqlite_error", error=str(e))
+                return False
+
+        return await asyncio.to_thread(_delete)
 
     async def _delete_thread_postgres(self, thread_id: str) -> bool:
         """Delete thread from PostgreSQL."""

@@ -75,11 +75,17 @@ async def run_critique_round(
         else:
             trimmed = all_messages
 
+        # Copy mutable fields from state to prevent agents from mutating
+        # shared references (Issue 91: shallow spread).
         critique_state = {
             **state,
             "messages": trimmed + [
                 HumanMessage(content=critique_prompt),
             ],
+            "symptoms": list(state.get("symptoms", [])),
+            "evidence": dict(state.get("evidence", {})),
+            "active_team": list(state.get("active_team", [])),
+            "agent_beliefs": dict(state.get("agent_beliefs", {})),
         }
 
         try:

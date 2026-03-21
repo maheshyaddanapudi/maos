@@ -238,6 +238,40 @@ def create_langchain_model(config: LLMConfig) -> BaseChatModel:
             **common_kwargs
         )
 
+    elif config.provider == LLMProvider.OPENAI_COMPATIBLE:
+        from langchain_openai import ChatOpenAI
+
+        if not config.base_url:
+            raise ValueError(
+                "OPENAI_COMPATIBLE provider requires base_url"
+            )
+
+        return ChatOpenAI(
+            model=config.model,
+            api_key=api_key or "not-needed",
+            base_url=config.base_url,
+            timeout=config.timeout_seconds,
+            **common_kwargs
+        )
+
+    elif config.provider == LLMProvider.AZURE_OPENAI:
+        from langchain_openai import AzureChatOpenAI
+
+        if not api_key_env:
+            api_key = os.environ.get("AZURE_OPENAI_API_KEY")
+
+        azure_endpoint = config.base_url or os.environ.get(
+            "AZURE_OPENAI_ENDPOINT", ""
+        )
+
+        return AzureChatOpenAI(
+            azure_deployment=config.model,
+            api_key=api_key,
+            azure_endpoint=azure_endpoint,
+            timeout=config.timeout_seconds,
+            **common_kwargs
+        )
+
     else:
         raise ValueError(f"Unsupported LLM provider: {config.provider}")
 

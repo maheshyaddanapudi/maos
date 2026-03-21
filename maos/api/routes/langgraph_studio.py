@@ -365,7 +365,7 @@ async def create_run(
     try:
         # Check if resuming
         state = await graph.aget_state(config)
-        is_resuming = state.next is not None
+        is_resuming = bool(state.next)
 
         roster = []
         if agent_registry and hasattr(agent_registry, 'get_roster'):
@@ -486,7 +486,7 @@ async def _stream_run(
     try:
         # Check if resuming
         state = await graph.aget_state(config)
-        is_resuming = state.next is not None
+        is_resuming = bool(state.next)
 
         roster = []
         if agent_registry and hasattr(agent_registry, 'get_roster'):

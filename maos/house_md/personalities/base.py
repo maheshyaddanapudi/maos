@@ -5,6 +5,7 @@ Compatible with: LangGraph agents, MAOS workers, A2A external agents.
 
 from __future__ import annotations
 
+import inspect
 import random
 from dataclasses import dataclass, field
 from enum import Enum
@@ -204,9 +205,13 @@ class PersonalityWrapper:
         enhanced["messages"] = [personality_msg] + non_system
 
         if effective_ctx:
+            # Copy mutable lists to avoid downstream mutations leaking
+            # back to the TeamContext (Issue 64: shallow copy).
             enhanced["team_context"] = {
-                "other_agents": effective_ctx.active_agents,
-                "current_hypotheses": effective_ctx.hypotheses,
+                "other_agents": list(effective_ctx.active_agents),
+                "current_hypotheses": [
+                    dict(h) for h in effective_ctx.hypotheses
+                ],
                 "my_role": self.personality.name,
             }
 
@@ -252,7 +257,12 @@ class PersonalityWrapper:
             else:
                 result = self.base_agent.invoke(enhanced_state)
         elif callable(self.base_agent):
-            result = await self.base_agent(enhanced_state)
+            # Support both sync and async callables (Issue 67).
+            call_result = self.base_agent(enhanced_state)
+            if inspect.isawaitable(call_result):
+                result = await call_result
+            else:
+                result = call_result
         else:
             raise TypeError(
                 f"Base agent {type(self.base_agent)} is not invocable"

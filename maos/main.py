@@ -235,6 +235,7 @@ async def initialize_system(config_path: str, checkpointer=None):
         "graph": compiled_graph,
         "checkpointer": checkpointer,
         "external_servers": external_servers,
+        "a2a_client": a2a_client,
     }
 
     return compiled_graph, context
@@ -256,6 +257,14 @@ async def shutdown_system(context: dict):
             await server.stop()
         except Exception as e:
             logger.warning("failed_to_stop_external_agent", error=str(e))
+
+    # Close A2A client
+    a2a_client = context.get("a2a_client")
+    if a2a_client:
+        try:
+            await a2a_client.close()
+        except Exception as e:
+            logger.warning("failed_to_close_a2a_client", error=str(e))
 
     # Disconnect MCP servers
     mcp_registry = context.get("mcp_registry")

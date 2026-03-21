@@ -58,6 +58,10 @@ Round 10/11 Issue 69: OPENAI_COMPATIBLE and AZURE_OPENAI providers
 Round 10/11 Issue 75: Blocking sqlite3 offloaded to thread
 Round 10/11 Issue 90: hypotheses dedup reducer replaces operator.add
 Round 10/11 Issue 91: critique_state copies mutable fields from state
+R11-new: External agent uses get_content() not response.result.message
+R11-new: Resume path safe for empty messages list
+R11-new: A2AClient closed on shutdown via context
+R11-new: _extract_content handles list-type AIMessage content
 """
 
 from __future__ import annotations
@@ -2906,3 +2910,103 @@ class TestBlockingSqliteOffloaded:
 
         source = inspect.getsource(ConversationStore._delete_thread_sqlite)
         assert "asyncio.to_thread" in source
+
+
+class TestExternalAgentResponseAccess:
+    """R11-new: External agent must use get_content(), not .message."""
+
+    def test_external_agent_graph_uses_get_content(self):
+        """Verify the code uses get_content() not response.result.message."""
+        import inspect
+
+        from maos.graph.factory import create_external_agent_graph
+
+        source = inspect.getsource(create_external_agent_graph)
+        assert "response.get_content()" in source
+        assert "response.result.message" not in source
+
+
+class TestResumeEmptyMessages:
+    """R11-new: Resume path must not crash on empty messages list."""
+
+    def test_studio_resume_safe_for_empty_messages(self):
+        """Verify resume_value extraction is safe for empty lists."""
+        import inspect
+
+        from maos.api.routes.langgraph_studio import create_run
+
+        source = inspect.getsource(create_run)
+        # Should use safe pattern: messages[-1]... if messages else ""
+        assert "if messages else" in source
+        # Should NOT use the old unsafe pattern
+        assert '[{}])[-1].get("content"' not in source
+
+
+class TestExtractContentListContent:
+    """R11-new: _extract_content handles list-type AIMessage content."""
+
+    def test_list_content_stringified(self):
+        result = {
+            "messages": [
+                AIMessage(
+                    content=[
+                        {"type": "text", "text": "hello"},
+                        {"type": "text", "text": "world"},
+                    ],
+                    name="test",
+                )
+            ]
+        }
+        content = _extract_content(result)
+        assert "hello" in content
+        assert "world" in content
+
+    def test_string_content_unchanged(self):
+        result = {
+            "messages": [
+                AIMessage(content="plain text", name="test")
+            ]
+        }
+        content = _extract_content(result)
+        assert content == "plain text"
+
+
+class TestA2AClientClosedOnShutdown:
+    """R11-new: A2AClient stored in context for shutdown."""
+
+    def test_context_includes_a2a_client(self):
+        """Verify initialize_system stores a2a_client in context."""
+        import inspect
+
+        from maos.main import initialize_system
+
+        source = inspect.getsource(initialize_system)
+        assert '"a2a_client": a2a_client' in source
+
+    def test_shutdown_closes_a2a_client(self):
+        """Verify shutdown_system closes the A2A client."""
+        import inspect
+
+        from maos.main import shutdown_system
+
+        source = inspect.getsource(shutdown_system)
+        assert "a2a_client" in source
+        assert "close" in source
+
+
+class TestIsResumingCheck:
+    """R11-new: All is_resuming/is_interrupted checks use bool()."""
+
+    def test_no_is_not_none_on_state_next(self):
+        """Verify no code uses 'state.next is not None'."""
+        import os
+
+        routes_dir = os.path.join("maos", "api", "routes")
+        for fname in os.listdir(routes_dir):
+            if not fname.endswith(".py"):
+                continue
+            with open(os.path.join(routes_dir, fname)) as f:
+                content = f.read()
+            assert "state.next is not None" not in content, (
+                f"{fname} still uses 'state.next is not None'"
+            )

@@ -820,10 +820,21 @@ def _extract_content(result: dict[str, Any]) -> str:
     messages = result.get("messages", [])
     for msg in reversed(messages):
         if isinstance(msg, AIMessage):
-            return msg.content
+            # AIMessage.content can be a list (multimodal) — stringify it.
+            content = msg.content
+            if isinstance(content, list):
+                parts = [
+                    p.get("text", str(p)) if isinstance(p, dict) else str(p)
+                    for p in content
+                ]
+                return " ".join(parts)
+            return content
         if hasattr(msg, "content") and hasattr(msg, "type"):
             if msg.type == "ai":
-                return msg.content
+                content = msg.content
+                if isinstance(content, list):
+                    return str(content)
+                return content
         if isinstance(msg, dict) and msg.get("role") == "assistant":
             return msg.get("content", "")
     # Fallback: extract any content string rather than dumping the whole dict

@@ -374,7 +374,8 @@ async def create_run(
         if is_resuming:
             # Resume with input
             input_value = request.input or {}
-            resume_value = input_value.get("messages", [{}])[-1].get("content", "")
+            messages = input_value.get("messages", [])
+            resume_value = messages[-1].get("content", "") if messages else ""
             await graph.ainvoke(Command(resume=resume_value), config)
         else:
             # New run
@@ -497,7 +498,8 @@ async def _stream_run(
 
         if is_resuming:
             input_value = request.input or {}
-            resume_value = input_value.get("messages", [{}])[-1].get("content", "")
+            messages = input_value.get("messages", [])
+            resume_value = messages[-1].get("content", "") if messages else ""
 
             async for event in graph.astream_events(
                 Command(resume=resume_value),

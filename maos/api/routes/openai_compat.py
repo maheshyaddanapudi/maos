@@ -122,7 +122,7 @@ async def create_chat_completion(
 
     # Check if there's a paused conversation to resume
     state = await graph.aget_state(config)
-    is_resuming = state.next is not None
+    is_resuming = bool(state.next)
 
     # Handle streaming
     if request.stream:

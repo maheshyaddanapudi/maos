@@ -108,8 +108,8 @@ def create_external_agent_graph(
                 message=task
             )
 
-            # Extract response content
-            content = response.result.message.text if response.result else "No response from external agent"
+            # Extract response content via A2AResult → A2ATask → A2AMessage
+            content = response.get_content() if response.is_success else "No response from external agent"
 
             return {"messages": [AIMessage(content=content, name=external.name)]}
 

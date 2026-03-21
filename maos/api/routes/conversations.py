@@ -203,7 +203,7 @@ async def get_conversation(
                 ))
 
         # Check if interrupted
-        is_interrupted = state.next is not None
+        is_interrupted = bool(state.next)
         interrupt_prompt = None
 
         if is_interrupted:
@@ -322,7 +322,7 @@ async def get_conversation_status(
                 "status": "not_found",
             }
 
-        is_interrupted = state.next is not None
+        is_interrupted = bool(state.next)
         status = "interrupted" if is_interrupted else "idle"
 
         return {

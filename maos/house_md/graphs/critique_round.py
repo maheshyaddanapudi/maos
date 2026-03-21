@@ -52,18 +52,17 @@ async def run_critique_round(
         if agent_name not in agent_nodes:
             continue
 
-        # Set team context on personality wrappers so the personality
-        # prompt includes active team information during critique.
+        # Build a per-invocation TeamContext instead of mutating the
+        # shared wrapper's team_context (Issue 55: thread-safety).
         agent_fn = agent_nodes[agent_name]
-        if isinstance(agent_fn, PersonalityWrapper):
-            agent_fn.team_context = TeamContext(
-                active_agents=active_team,
-                hypotheses=[
-                    h.to_dict() for h in whiteboard.get_active_hypotheses()
-                ],
-                current_phase=state.get("current_phase", "differential"),
-                whiteboard=whiteboard,
-            )
+        team_context = TeamContext(
+            active_agents=active_team,
+            hypotheses=[
+                h.to_dict() for h in whiteboard.get_active_hypotheses()
+            ],
+            current_phase=state.get("current_phase", "differential"),
+            whiteboard=whiteboard,
+        )
 
         critique_prompt = _build_critique_prompt(whiteboard, agent_name)
 
@@ -84,7 +83,11 @@ async def run_critique_round(
         }
 
         try:
-            if hasattr(agent_fn, "ainvoke"):
+            if isinstance(agent_fn, PersonalityWrapper):
+                result = await agent_fn.ainvoke(
+                    critique_state, team_context=team_context
+                )
+            elif hasattr(agent_fn, "ainvoke"):
                 result = await agent_fn.ainvoke(critique_state)
             elif callable(agent_fn):
                 result = await agent_fn(critique_state)

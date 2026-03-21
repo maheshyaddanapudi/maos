@@ -216,10 +216,12 @@ class HouseMDGraphFactory:
                 )
                 response_content = _extract_content(result)
 
-                # Extract hypotheses from House's provocation
-                _update_whiteboard_hypotheses(
-                    whiteboard, response_content, "house"
-                )
+                # Extract hypotheses from House's provocation (skip on
+                # error responses to avoid spurious hypothesis extraction).
+                if not result.get("_is_error"):
+                    _update_whiteboard_hypotheses(
+                        whiteboard, response_content, "house"
+                    )
 
                 prov_msg = AIMessage(
                     content=f"[House - Provocation] {response_content}",
@@ -266,9 +268,10 @@ class HouseMDGraphFactory:
                 response_content = _extract_content(result)
 
                 # Extract hypotheses from test results and update whiteboard
-                _update_whiteboard_hypotheses(
-                    whiteboard, response_content, "chase"
-                )
+                if not result.get("_is_error"):
+                    _update_whiteboard_hypotheses(
+                        whiteboard, response_content, "chase"
+                    )
 
                 test_msg = AIMessage(
                     content=f"[Chase - Testing] {response_content}",
@@ -373,9 +376,10 @@ class HouseMDGraphFactory:
                 response_content = _extract_content(result)
 
                 # Extract hypotheses from Wilson's insight
-                _update_whiteboard_hypotheses(
-                    whiteboard, response_content, "wilson"
-                )
+                if not result.get("_is_error"):
+                    _update_whiteboard_hypotheses(
+                        whiteboard, response_content, "wilson"
+                    )
 
                 wilson_msg = AIMessage(
                     content=f"[Wilson - Consult] {response_content}",
@@ -720,8 +724,9 @@ async def _invoke_agent(
     """
     whiteboard = Whiteboard.from_dict(state["whiteboard"])
 
-    # Update team context on the wrapper
-    agent.team_context = TeamContext(
+    # Build a per-invocation TeamContext instead of mutating the shared
+    # wrapper's team_context (Issue 55: thread-safety).
+    team_context = TeamContext(
         active_agents=state.get("active_team", []),
         hypotheses=[h.to_dict() for h in whiteboard.get_active_hypotheses()],
         current_phase=state.get("current_phase", "intake"),
@@ -754,7 +759,9 @@ async def _invoke_agent(
     }
 
     try:
-        result = await agent.invoke(invoke_state)
+        result = await agent.invoke(
+            invoke_state, team_context=team_context
+        )
         return result
     except Exception as e:
         logger.error(
@@ -762,13 +769,16 @@ async def _invoke_agent(
             agent=agent_name,
             error=str(e),
         )
+        # Mark the result as an error so callers can skip hypothesis
+        # extraction (Issue 56: error-as-response).
         return {
             "messages": [
                 AIMessage(
                     content=f"[{agent_name}] Error: {e}",
                     name=agent_name,
                 )
-            ]
+            ],
+            "_is_error": True,
         }
 
 

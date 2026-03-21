@@ -326,9 +326,9 @@ class GraphFactory:
 
         # Create dynamic Pydantic model for args
         if field_definitions:
-            ArgsModel = create_model(f"{tool.name}Args", **field_definitions)
+            args_model = create_model(f"{tool.name}Args", **field_definitions)
         else:
-            ArgsModel = None
+            args_model = None
 
         async def invoke_tool(**kwargs) -> str:
             try:
@@ -343,7 +343,7 @@ class GraphFactory:
             "description": tool.description or f"Tool: {tool.name}",
         }
 
-        if ArgsModel:
-            tool_kwargs["args_schema"] = ArgsModel
+        if args_model:
+            tool_kwargs["args_schema"] = args_model
 
         return StructuredTool.from_function(**tool_kwargs)

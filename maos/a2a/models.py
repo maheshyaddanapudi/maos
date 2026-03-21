@@ -1,12 +1,12 @@
 """A2A protocol data models."""
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """A2A task status values."""
     SUBMITTED = "SUBMITTED"
     WORKING = "WORKING"

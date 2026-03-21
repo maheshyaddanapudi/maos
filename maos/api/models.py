@@ -1,13 +1,13 @@
 """API request and response models."""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class MessageRole(str, Enum):
+class MessageRole(StrEnum):
     """Message role types."""
     USER = "user"
     ASSISTANT = "assistant"
@@ -84,7 +84,7 @@ class InputRequiredResponse(BaseModel):
     context: dict[str, Any] | None = None
 
 
-class StreamEventType(str, Enum):
+class StreamEventType(StrEnum):
     """Types of streaming events."""
     CHUNK = "chunk"
     TOOL_CALL = "tool_call"
@@ -122,7 +122,7 @@ class AgentListResponse(BaseModel):
     external_agents: list[AgentInfo] = Field(default_factory=list)
 
 
-class HealthStatus(str, Enum):
+class HealthStatus(StrEnum):
     """Health status values."""
     HEALTHY = "healthy"
     DEGRADED = "degraded"
@@ -329,7 +329,7 @@ class RunCreate(BaseModel):
     multitask_strategy: str | None = None  # "reject", "rollback", "interrupt", "enqueue"
 
 
-class RunStatus(str, Enum):
+class RunStatus(StrEnum):
     """Status of a run."""
     PENDING = "pending"
     RUNNING = "running"
@@ -358,11 +358,4 @@ class RunOutput(BaseModel):
     status: RunStatus
     result: dict[str, Any] | None = None
     error: str | None = None
-
-
-class StreamEvent(BaseModel):
-    """A streaming event."""
-    event: StreamEventType
-    data: dict[str, Any]
-    timestamp: datetime | None = None
 

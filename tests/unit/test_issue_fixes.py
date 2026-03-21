@@ -1,4 +1,4 @@
-"""Tests for Issues 7-26 + Round 4 + Round 5 + Round 6/7 fixes.
+"""Tests for Issues 7-26 + Round 4 + Round 5 + Round 6/7 + Round 8/9 fixes.
 
 Issue 7:  Whiteboard hypotheses populated from agent responses
 Issue 8:  Trimmed message history in _invoke_agent
@@ -43,6 +43,12 @@ Round 6/7 Issue 48: Route tests actually call routing function
 Round 6/7 Issue 51: Confidence boundary test at exactly 0.85
 Round 6/7 Issue 53: Terminal state transitions (confirm/rule_out twice)
 Round 6/7 Issue 54: Whiteboard round-trip serialization
+Round 8/9 Issue 55: Thread-safe team_context via per-invocation parameter
+Round 8/9 Issue 56: Error responses skip hypothesis extraction
+Round 8/9 Issue 57: Renamed misleading test_no_environmental_after_iteration_2
+Round 8/9 Issue 58: _make_state default active_team includes cameron
+Round 8/9 Issue 59: Mock agents use side_effect factory for fresh dicts
+Round 8/9 Issue 60: config not passed to sync invoke() when None
 """
 
 from __future__ import annotations
@@ -106,17 +112,21 @@ def _make_state(**overrides) -> dict[str, Any]:
         "final_diagnosis": None,
         "confidence": 0.0,
         "iteration": 0,
-        "active_team": ["house", "foreman", "chase"],
+        "active_team": ["house", "foreman", "cameron", "chase"],
     }
     defaults.update(overrides)
     return defaults
 
 
 def _mock_personality_agent(response_text: str = "mock response") -> PersonalityWrapper:
-    """Create a mock PersonalityWrapper that returns a canned response."""
+    """Create a mock PersonalityWrapper that returns a canned response.
+
+    Uses ``side_effect`` instead of ``return_value`` so each call gets
+    a fresh dict, preventing accidental shared-state between callers.
+    """
     base = AsyncMock()
     base.ainvoke = AsyncMock(
-        return_value={
+        side_effect=lambda *a, **kw: {
             "messages": [AIMessage(content=response_text, name="mock")]
         }
     )
@@ -1122,7 +1132,7 @@ class TestRouteReentrytoDifferential:
             "agent_beliefs": {},
             "final_diagnosis": None,
             "confidence": 0.0,
-            "active_team": ["house", "foreman", "chase"],
+            "active_team": ["house", "foreman", "cameron", "chase"],
         }
 
     def test_iteration_2_even_goes_to_differential(self):
@@ -1160,8 +1170,8 @@ class TestRouteReentrytoDifferential:
 
 class TestCritiqueRoundTeamContext:
     @pytest.mark.asyncio
-    async def test_team_context_set_on_personality_wrapper(self):
-        """Critique round should set team_context before calling agents."""
+    async def test_team_context_passed_as_parameter(self):
+        """Critique round should pass team_context per-invocation, not mutate wrapper."""
         state = _make_state(active_team=["chase"])
 
         wrapper = _mock_personality_agent(
@@ -1170,23 +1180,25 @@ class TestCritiqueRoundTeamContext:
         # Verify team_context is None initially
         assert wrapper.team_context is None
 
-        # Track whether team_context was set before invoke
-        original_ainvoke = wrapper.base_agent.ainvoke
-        team_context_during_call = []
+        # Track the team_context passed to enhance_state during invoke
+        enhance_calls = []
+        original_enhance = wrapper.enhance_state
 
-        async def tracking_ainvoke(state, config=None):
-            team_context_during_call.append(wrapper.team_context)
-            return await original_ainvoke(state, config)
+        def tracking_enhance(s, team_context=None):
+            enhance_calls.append(team_context)
+            return original_enhance(s, team_context=team_context)
 
-        wrapper.base_agent.ainvoke = tracking_ainvoke
+        wrapper.enhance_state = tracking_enhance
 
         await run_critique_round(state, {"chase": wrapper})
 
-        # team_context should have been set before the call
-        assert len(team_context_during_call) == 1
-        ctx = team_context_during_call[0]
+        # team_context should have been passed as a parameter
+        assert len(enhance_calls) == 1
+        ctx = enhance_calls[0]
         assert isinstance(ctx, TeamContext)
         assert "chase" in ctx.active_agents
+        # The wrapper's instance attribute should NOT have been mutated
+        assert wrapper.team_context is None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2357,3 +2369,235 @@ class TestWhiteboardRoundTrip:
         d1 = wb.to_dict()
         d2 = Whiteboard.from_dict(d1).to_dict()
         assert d1 == d2
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 8/9 Issue 55: Thread-safe team_context via per-invocation parameter
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestTeamContextThreadSafety:
+    """Issue 55: team_context should be passed per-invocation, not mutated."""
+
+    async def test_invoke_accepts_team_context_parameter(self):
+        """PersonalityWrapper.invoke() accepts team_context kwarg."""
+        agent = _mock_personality_agent("response")
+        ctx = TeamContext(
+            active_agents=["house", "chase"],
+            hypotheses=[],
+            current_phase="differential",
+        )
+        result = await agent.invoke(
+            {"messages": [HumanMessage(content="test")]},
+            team_context=ctx,
+        )
+        assert isinstance(result, dict)
+
+    async def test_ainvoke_accepts_team_context_parameter(self):
+        """PersonalityWrapper.ainvoke() forwards team_context."""
+        agent = _mock_personality_agent("response")
+        ctx = TeamContext(
+            active_agents=["house", "chase"],
+            hypotheses=[],
+            current_phase="testing",
+        )
+        result = await agent.ainvoke(
+            {"messages": [HumanMessage(content="test")]},
+            team_context=ctx,
+        )
+        assert isinstance(result, dict)
+
+    async def test_per_invocation_context_overrides_instance(self):
+        """Per-invocation team_context takes precedence over self.team_context."""
+        agent = _mock_personality_agent("response")
+        # Set instance-level context
+        agent.team_context = TeamContext(
+            active_agents=["old_agent"],
+            hypotheses=[],
+            current_phase="intake",
+        )
+        # Pass different per-invocation context
+        new_ctx = TeamContext(
+            active_agents=["new_agent_a", "new_agent_b"],
+            hypotheses=[],
+            current_phase="differential",
+        )
+        enhanced = agent.enhance_state(
+            {"messages": [HumanMessage(content="test")]},
+            team_context=new_ctx,
+        )
+        # The enhanced state should use the per-invocation context
+        sys_msg = enhanced["messages"][0].content
+        assert "new_agent_a" in sys_msg
+        assert "old_agent" not in sys_msg
+
+    async def test_shared_wrapper_not_mutated_by_invoke_agent(self):
+        """_invoke_agent should not mutate agent.team_context."""
+        from maos.house_md.graphs.factory import _invoke_agent
+
+        agent = _mock_personality_agent("HYPOTHESIS: test fix")
+        original_ctx = agent.team_context  # Should be None initially
+        state = _make_state()
+        await _invoke_agent(agent, state, "test prompt", "test")
+        # team_context on the wrapper should not have been set
+        assert agent.team_context is original_ctx
+
+    async def test_critique_round_does_not_mutate_wrapper(self):
+        """run_critique_round should not mutate agent.team_context."""
+        from maos.house_md.graphs.critique_round import run_critique_round
+
+        agent = _mock_personality_agent("HYPOTHESIS: some idea")
+        original_ctx = agent.team_context
+        state = _make_state(active_team=["chase"])
+        await run_critique_round(state, {"chase": agent})
+        assert agent.team_context is original_ctx
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 8/9 Issue 56: Error responses skip hypothesis extraction
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestErrorResponseSkipsHypothesisExtraction:
+    """Issue 56: _invoke_agent error results include _is_error flag."""
+
+    async def test_invoke_agent_error_sets_flag(self):
+        """When agent invocation fails, result should have _is_error=True."""
+        from maos.house_md.graphs.factory import _invoke_agent
+
+        # Create an agent that raises an exception
+        base = AsyncMock()
+        base.ainvoke = AsyncMock(side_effect=RuntimeError("LLM timeout"))
+        personality = PersonalityConfig(
+            name="FailAgent",
+            role_description="test",
+            system_prompt_additions="test",
+        )
+        agent = PersonalityWrapper(base_agent=base, personality=personality)
+
+        state = _make_state()
+        result = await _invoke_agent(agent, state, "test", "fail_agent")
+        assert result.get("_is_error") is True
+        assert "Error" in result["messages"][0].content
+
+    async def test_successful_invoke_has_no_error_flag(self):
+        """Successful invocations should not have _is_error."""
+        from maos.house_md.graphs.factory import _invoke_agent
+
+        agent = _mock_personality_agent("HYPOTHESIS: valid result")
+        state = _make_state()
+        result = await _invoke_agent(agent, state, "test", "test_agent")
+        assert result.get("_is_error") is not True
+
+    def test_error_content_not_extracted_as_hypothesis(self):
+        """Error text like '[agent] Error: ...' should not become a hypothesis."""
+        from maos.house_md.graphs.critique_round import extract_hypotheses
+
+        error_content = "[chase] Error: Connection timeout after 30s"
+        hypotheses = extract_hypotheses(error_content, "chase")
+        # The error message should not produce any meaningful hypothesis
+        for h in hypotheses:
+            assert "Error" not in h["hypothesis"] or "timeout" not in h["hypothesis"].lower()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 8/9 Issue 58: _make_state default active_team includes cameron
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestMakeStateIncludesCameron:
+    """Issue 58: Default active_team should include cameron."""
+
+    def test_default_active_team_has_cameron(self):
+        state = _make_state()
+        assert "cameron" in state["active_team"]
+
+    def test_default_active_team_matches_diagnostic_default(self):
+        """_make_state active_team should match create_initial_diagnostic_state."""
+        from maos.house_md.graphs.differential_diagnosis import (
+            create_initial_diagnostic_state,
+        )
+
+        diag_state = create_initial_diagnostic_state("test")
+        make_state = _make_state()
+        assert set(diag_state["active_team"]) == set(make_state["active_team"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 8/9 Issue 59: Mock agents use side_effect for fresh dicts
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestMockAgentFreshDicts:
+    """Issue 59: Each mock invocation should return a distinct dict."""
+
+    async def test_mock_returns_fresh_dicts(self):
+        agent = _mock_personality_agent("test response")
+        state = {"messages": [HumanMessage(content="test")]}
+        result1 = await agent.invoke(state)
+        result2 = await agent.invoke(state)
+        # Results should be equal in content but distinct objects
+        assert result1 is not result2
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 8/9 Issue 60: config not passed to sync invoke() when None
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSyncInvokeConfigHandling:
+    """Issue 60: sync invoke() should not receive config=None."""
+
+    async def test_sync_invoke_without_config(self):
+        """When config is None, sync invoke() should be called with one arg."""
+        from unittest.mock import MagicMock
+
+        base = MagicMock()
+        # Only sync invoke, no ainvoke
+        del base.ainvoke
+        base.invoke = MagicMock(
+            return_value={
+                "messages": [AIMessage(content="sync ok", name="test")]
+            }
+        )
+        personality = PersonalityConfig(
+            name="SyncAgent",
+            role_description="test",
+            system_prompt_additions="test",
+        )
+        agent = PersonalityWrapper(base_agent=base, personality=personality)
+        await agent.invoke(
+            {"messages": [HumanMessage(content="test")]},
+            config=None,
+        )
+        # invoke should have been called with just the state, no config
+        base.invoke.assert_called_once()
+        args, _kwargs = base.invoke.call_args
+        assert len(args) == 1  # Only state, no config
+
+    async def test_sync_invoke_with_config(self):
+        """When config is provided, sync invoke() should receive it."""
+        from unittest.mock import MagicMock
+
+        base = MagicMock()
+        del base.ainvoke
+        base.invoke = MagicMock(
+            return_value={
+                "messages": [AIMessage(content="sync ok", name="test")]
+            }
+        )
+        personality = PersonalityConfig(
+            name="SyncAgent",
+            role_description="test",
+            system_prompt_additions="test",
+        )
+        agent = PersonalityWrapper(base_agent=base, personality=personality)
+        my_config = {"configurable": {"thread_id": "123"}}
+        await agent.invoke(
+            {"messages": [HumanMessage(content="test")]},
+            config=my_config,
+        )
+        base.invoke.assert_called_once()
+        args, _kwargs = base.invoke.call_args
+        assert len(args) == 2  # State + config
+        assert args[1] == my_config

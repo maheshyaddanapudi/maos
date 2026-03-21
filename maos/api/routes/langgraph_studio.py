@@ -61,7 +61,6 @@ def _init_default_assistant(context: dict[str, Any]) -> None:
     if "default" in _assistants:
         return
 
-    config = context.get("config")
     description = "MAOS Multi-Agent Orchestration System"
 
     _assistants["default"] = Assistant(
@@ -376,7 +375,7 @@ async def create_run(
             # Resume with input
             input_value = request.input or {}
             resume_value = input_value.get("messages", [{}])[-1].get("content", "")
-            result = await graph.ainvoke(Command(resume=resume_value), config)
+            await graph.ainvoke(Command(resume=resume_value), config)
         else:
             # New run
             input_value = request.input or {}
@@ -387,7 +386,7 @@ async def create_run(
                 roster=roster,
                 thread_id=thread_id
             )
-            result = await graph.ainvoke(initial_state, config)
+            await graph.ainvoke(initial_state, config)
 
         # Check if interrupted
         state = await graph.aget_state(config)

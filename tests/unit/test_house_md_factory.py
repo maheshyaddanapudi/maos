@@ -136,21 +136,33 @@ class TestInvokeAgent:
         result = await _invoke_agent(agent, state, "analyze this", "house")
 
         assert "messages" in result
-        # Verify team context was set
-        assert agent.team_context is not None
-        assert "house" in agent.team_context.active_agents
+        # team_context should NOT be mutated on the shared wrapper
+        # (Issue 55: thread-safety — context is passed per-invocation)
+        assert agent.team_context is None
 
     @pytest.mark.asyncio
-    async def test_invoke_sets_team_context(self):
+    async def test_invoke_passes_team_context(self):
+        """_invoke_agent passes team_context per-invocation, not on wrapper."""
         agent = _mock_personality_agent()
         state = _make_state(active_team=["house", "foreman", "cameron"])
 
+        # Track enhance_state calls to verify team_context is passed
+        enhance_calls = []
+        original_enhance = agent.enhance_state
+
+        def tracking_enhance(s, team_context=None):
+            enhance_calls.append(team_context)
+            return original_enhance(s, team_context=team_context)
+
+        agent.enhance_state = tracking_enhance
+
         await _invoke_agent(agent, state, "prompt", "house")
 
-        assert agent.team_context.active_agents == [
-            "house", "foreman", "cameron"
-        ]
-        assert agent.team_context.current_phase == "intake"
+        assert len(enhance_calls) == 1
+        ctx = enhance_calls[0]
+        assert ctx is not None
+        assert ctx.active_agents == ["house", "foreman", "cameron"]
+        assert ctx.current_phase == "intake"
 
     @pytest.mark.asyncio
     async def test_invoke_handles_error(self):
@@ -479,9 +491,20 @@ class TestPersonalityIntegration:
             assert wrapped["house"].personality.name == "House"
 
     @pytest.mark.asyncio
-    async def test_team_context_updated_per_invocation(self):
-        """team_context is updated for each phase invocation."""
+    async def test_team_context_varies_per_invocation(self):
+        """team_context is passed per-invocation, not mutated on wrapper."""
         agent = _mock_personality_agent("response")
+
+        # Track enhance_state calls
+        enhance_calls = []
+        original_enhance = agent.enhance_state
+
+        def tracking_enhance(s, team_context=None):
+            enhance_calls.append(team_context)
+            return original_enhance(s, team_context=team_context)
+
+        agent.enhance_state = tracking_enhance
+
         state1 = _make_state(
             current_phase="intake",
             active_team=["house", "foreman"],
@@ -492,12 +515,15 @@ class TestPersonalityIntegration:
         )
 
         await _invoke_agent(agent, state1, "prompt", "house")
-        assert agent.team_context.current_phase == "intake"
-        assert agent.team_context.active_agents == ["house", "foreman"]
+        assert enhance_calls[0].current_phase == "intake"
+        assert enhance_calls[0].active_agents == ["house", "foreman"]
 
         await _invoke_agent(agent, state2, "prompt", "house")
-        assert agent.team_context.current_phase == "testing"
-        assert agent.team_context.active_agents == ["house", "chase"]
+        assert enhance_calls[1].current_phase == "testing"
+        assert enhance_calls[1].active_agents == ["house", "chase"]
+
+        # Wrapper itself should not have been mutated
+        assert agent.team_context is None
 
 
 # ── Critique round wiring ───────────────────────────────────────────────────

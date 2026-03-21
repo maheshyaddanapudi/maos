@@ -1,13 +1,14 @@
 """LangGraph state schema and related models."""
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Any
 
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 
-class ResultType(str, Enum):
+class ResultType(StrEnum):
     """Type of result output."""
     TEXT = "text"
     ERROR = "error"
@@ -92,10 +93,6 @@ class Message(BaseModel):
         if self.tool_call_id:
             d["tool_call_id"] = self.tool_call_id
         return d
-
-
-# GraphState as a TypedDict for LangGraph
-from typing_extensions import TypedDict
 
 
 class GraphState(TypedDict):

@@ -227,7 +227,7 @@ class TestRouteAfterProvocation:
         state["iteration"] = 1
         assert route_after_provocation(state) == "wilson_consult"
 
-    def test_no_environmental_after_iteration_2(self):
+    def test_iteration_2_goes_to_environmental(self):
         state = create_initial_diagnostic_state("Test")
         state["iteration"] = 2
         wb = Whiteboard.from_dict(state["whiteboard"])

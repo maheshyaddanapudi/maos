@@ -1,12 +1,12 @@
 """Pydantic models for MAOS configuration."""
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
-class LLMProvider(str, Enum):
+class LLMProvider(StrEnum):
     """Supported LLM providers."""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
@@ -56,7 +56,7 @@ class SkillsetConfig(BaseModel):
     description: str | None = None
 
 
-class AgentKind(str, Enum):
+class AgentKind(StrEnum):
     """Types of agents."""
     SUPERVISOR = "supervisor"
     NATIVE_WORKER = "native_worker"

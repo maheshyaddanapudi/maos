@@ -104,15 +104,28 @@ class PersonalityWrapper:
         self._invocation_count = 0
         self._challenge_history: list[dict[str, Any]] = []
 
-    def build_enhanced_prompt(self, original_prompt: str) -> str:
-        """Inject personality into the agent's prompt."""
+    def build_enhanced_prompt(
+        self,
+        original_prompt: str,
+        team_context: TeamContext | None = None,
+    ) -> str:
+        """Inject personality into the agent's prompt.
+
+        Args:
+            original_prompt: The original system prompt content to merge.
+            team_context: Optional per-invocation team context.  When
+                provided, this takes precedence over ``self.team_context``
+                so that concurrent invocations don't race on the shared
+                instance attribute.
+        """
         biases_text = "\n".join(
             f"- {BIAS_DESCRIPTIONS[bias]}"
             for bias in self.personality.cognitive_biases
         )
+        effective_ctx = team_context or self.team_context
         team_section = ""
-        if self.team_context:
-            agents = ", ".join(self.team_context.active_agents)
+        if effective_ctx:
+            agents = ", ".join(effective_ctx.active_agents)
             team_section = f"\nACTIVE TEAM: {agents}\n"
 
         return (
@@ -135,7 +148,11 @@ class PersonalityWrapper:
             f"{original_prompt}"
         )
 
-    def enhance_state(self, state: dict[str, Any]) -> dict[str, Any]:
+    def enhance_state(
+        self,
+        state: dict[str, Any],
+        team_context: TeamContext | None = None,
+    ) -> dict[str, Any]:
         """Add personality context to state.
 
         Guarantees that the first message is always a ``SystemMessage``
@@ -143,12 +160,22 @@ class PersonalityWrapper:
         system message is found it is merged; otherwise a fresh one is
         prepended.  This ensures every invocation — regardless of how
         the state is constructed — carries the agent's identity.
+
+        Args:
+            state: The diagnostic state dict.
+            team_context: Optional per-invocation team context.  Preferred
+                over ``self.team_context`` to avoid thread-safety issues
+                when the same wrapper is shared across concurrent graph
+                executions.
         """
+        effective_ctx = team_context or self.team_context
         enhanced = state.copy()
         if "messages" not in enhanced:
             # If no messages at all, create a list with just the personality
             enhanced["messages"] = [
-                SystemMessage(content=self.build_enhanced_prompt(""))
+                SystemMessage(
+                    content=self.build_enhanced_prompt("", effective_ctx)
+                )
             ]
             return enhanced
 
@@ -168,23 +195,28 @@ class PersonalityWrapper:
         # Build the enhanced personality prompt (merging any existing
         # system content so nothing is lost).
         personality_msg = SystemMessage(
-            content=self.build_enhanced_prompt(existing_system_content)
+            content=self.build_enhanced_prompt(
+                existing_system_content, effective_ctx
+            )
         )
 
         # Personality SystemMessage is always first.
         enhanced["messages"] = [personality_msg] + non_system
 
-        if self.team_context:
+        if effective_ctx:
             enhanced["team_context"] = {
-                "other_agents": self.team_context.active_agents,
-                "current_hypotheses": self.team_context.hypotheses,
+                "other_agents": effective_ctx.active_agents,
+                "current_hypotheses": effective_ctx.hypotheses,
                 "my_role": self.personality.name,
             }
 
         return enhanced
 
     async def ainvoke(
-        self, state: dict[str, Any], config: dict[str, Any] | None = None
+        self,
+        state: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        team_context: TeamContext | None = None,
     ) -> dict[str, Any]:
         """Async invoke the wrapped agent with personality injection.
 
@@ -192,18 +224,33 @@ class PersonalityWrapper:
         convention so the wrapper can be used anywhere a LangGraph runnable
         is expected (e.g., in ``run_critique_round``).
         """
-        return await self.invoke(state, config)
+        return await self.invoke(state, config, team_context=team_context)
 
     async def invoke(
-        self, state: dict[str, Any], config: dict[str, Any] | None = None
+        self,
+        state: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        team_context: TeamContext | None = None,
     ) -> dict[str, Any]:
-        """Invoke the wrapped agent with personality injection."""
-        enhanced_state = self.enhance_state(state)
+        """Invoke the wrapped agent with personality injection.
+
+        Args:
+            state: The diagnostic state dict.
+            config: Optional LangGraph config.
+            team_context: Optional per-invocation team context (avoids
+                mutating the shared ``self.team_context``).
+        """
+        enhanced_state = self.enhance_state(state, team_context=team_context)
 
         if hasattr(self.base_agent, "ainvoke"):
             result = await self.base_agent.ainvoke(enhanced_state, config)
         elif hasattr(self.base_agent, "invoke"):
-            result = self.base_agent.invoke(enhanced_state, config)
+            # Only pass config if provided — sync invoke() on some
+            # runnables may not accept a second positional argument.
+            if config is not None:
+                result = self.base_agent.invoke(enhanced_state, config)
+            else:
+                result = self.base_agent.invoke(enhanced_state)
         elif callable(self.base_agent):
             result = await self.base_agent(enhanced_state)
         else:

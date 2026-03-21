@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class LLMProvider(StrEnum):
@@ -34,6 +34,14 @@ class MCPServerConfig(BaseModel):
     url: str | None = None
     env: dict[str, str] | None = None
     timeout_seconds: int = Field(default=30, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_transport_requirements(self) -> "MCPServerConfig":
+        if self.transport == "stdio" and not self.command:
+            raise ValueError("stdio transport requires 'command'")
+        if self.transport in ("http", "sse") and not self.url:
+            raise ValueError(f"{self.transport} transport requires 'url'")
+        return self
 
 
 class ToolConfig(BaseModel):
@@ -155,6 +163,14 @@ class CheckpointerConfig(BaseModel):
     # Common settings
     table_name: str = Field(default="checkpoints", description="Table name for checkpoints")
 
+    @model_validator(mode="after")
+    def _validate_type_requirements(self) -> "CheckpointerConfig":
+        if self.type == "postgres" and not self.postgres_uri and not self.postgres_uri_env:
+            raise ValueError(
+                "postgres checkpointer requires 'postgres_uri' or 'postgres_uri_env'"
+            )
+        return self
+
 
 class GraphConfig(BaseModel):
     """LangGraph execution configuration."""
@@ -243,11 +259,27 @@ class Config(BaseModel):
                 if skill_name not in self.skills:
                     errors.append(f"Skillset '{skillset_name}' references unknown skill '{skill_name}'")
 
-        # Check agent -> LLM and skillset references
+        # Check agent -> LLM, skillset, and tool references
+        supervisor_count = 0
         for agent_name, agent in self.agents.items():
+            if agent.kind == AgentKind.SUPERVISOR:
+                supervisor_count += 1
             if agent.llm not in self.llms:
                 errors.append(f"Agent '{agent_name}' references unknown LLM '{agent.llm}'")
             if agent.skillset and agent.skillset not in self.skillsets:
                 errors.append(f"Agent '{agent_name}' references unknown skillset '{agent.skillset}'")
+            if agent.tools:
+                for tool_name in agent.tools:
+                    if tool_name not in self.tools:
+                        errors.append(
+                            f"Agent '{agent_name}' references unknown tool '{tool_name}'"
+                        )
+
+        if supervisor_count == 0:
+            errors.append("No agent with kind 'supervisor' defined")
+        elif supervisor_count > 1:
+            errors.append(
+                f"Multiple supervisors defined ({supervisor_count}); exactly one required"
+            )
 
         return errors

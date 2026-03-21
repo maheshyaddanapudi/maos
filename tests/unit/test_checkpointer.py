@@ -43,13 +43,9 @@ class TestCheckpointerFactory:
                 CheckpointerFactory.create(config)
 
     def test_create_postgres_no_uri(self):
-        config = CheckpointerConfig(type="postgres")
-        with patch(
-            "maos.graph.checkpointer.CheckpointerFactory._create_postgres"
-        ) as mock:
-            mock.side_effect = ValueError("requires postgres_uri")
-            with pytest.raises(ValueError, match="postgres_uri"):
-                CheckpointerFactory.create(config)
+        # Config-level validation now catches missing postgres_uri
+        with pytest.raises(ValueError, match="postgres_uri"):
+            CheckpointerConfig(type="postgres")
 
     def test_create_sqlite_creates_directory(self, tmp_path):
         db_dir = tmp_path / "subdir" / "nested"
@@ -104,16 +100,9 @@ class TestCreateAsyncCheckpointer:
 
     @pytest.mark.asyncio
     async def test_postgres_no_uri(self):
-        config = CheckpointerConfig(type="postgres")
-        with patch.dict(
-            "sys.modules",
-            {
-                "langgraph.checkpoint.postgres.aio": MagicMock(),
-                "langgraph.checkpoint.postgres": MagicMock(),
-            },
-        ):
-            with pytest.raises(ValueError, match="postgres_uri"):
-                await create_async_checkpointer(config)
+        # Config-level validation now catches missing postgres_uri
+        with pytest.raises(ValueError, match="postgres_uri"):
+            CheckpointerConfig(type="postgres")
 
     @pytest.mark.asyncio
     async def test_postgres_env_var(self):
@@ -168,7 +157,7 @@ class TestConversationStore:
 
     @pytest.mark.asyncio
     async def test_list_threads_postgres(self):
-        config = CheckpointerConfig(type="postgres")
+        config = CheckpointerConfig(type="postgres", postgres_uri="postgresql://x")
         store = ConversationStore(MagicMock(), config)
         threads = await store.list_threads()
         assert threads == []
@@ -272,7 +261,7 @@ class TestConversationStore:
 
     @pytest.mark.asyncio
     async def test_delete_thread_postgres(self):
-        config = CheckpointerConfig(type="postgres")
+        config = CheckpointerConfig(type="postgres", postgres_uri="postgresql://x")
         store = ConversationStore(MagicMock(), config)
         assert await store.delete_thread("t1") is False
 

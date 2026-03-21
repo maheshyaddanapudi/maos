@@ -62,6 +62,10 @@ R11-new: External agent uses get_content() not response.result.message
 R11-new: Resume path safe for empty messages list
 R11-new: A2AClient closed on shutdown via context
 R11-new: _extract_content handles list-type AIMessage content
+R11-config: DiagnosticPhase uses StrEnum for consistency
+R11-config: MCPServerConfig validates transport requirements
+R11-config: CheckpointerConfig validates postgres requirements
+R11-config: validate_references checks supervisor count and agent tools
 """
 
 from __future__ import annotations
@@ -3010,3 +3014,152 @@ class TestIsResumingCheck:
             assert "state.next is not None" not in content, (
                 f"{fname} still uses 'state.next is not None'"
             )
+
+
+class TestDiagnosticPhaseStrEnum:
+    """R11-config: DiagnosticPhase uses StrEnum for consistency."""
+
+    def test_diagnostic_phase_is_strenum(self):
+        from enum import StrEnum
+
+        from maos.house_md.graphs.states import DiagnosticPhase
+
+        assert issubclass(DiagnosticPhase, StrEnum)
+
+    def test_direct_string_comparison(self):
+        from maos.house_md.graphs.states import DiagnosticPhase
+
+        # With StrEnum, direct comparison with string should work
+        assert DiagnosticPhase.INTAKE == "intake"
+        assert DiagnosticPhase.DIFFERENTIAL == "differential"
+
+
+class TestMCPServerConfigValidation:
+    """R11-config: MCPServerConfig validates transport requirements."""
+
+    def test_stdio_requires_command(self):
+        from maos.config.models import MCPServerConfig
+
+        with pytest.raises(ValueError, match="command"):
+            MCPServerConfig(transport="stdio")
+
+    def test_http_requires_url(self):
+        from maos.config.models import MCPServerConfig
+
+        with pytest.raises(ValueError, match="url"):
+            MCPServerConfig(transport="http")
+
+    def test_sse_requires_url(self):
+        from maos.config.models import MCPServerConfig
+
+        with pytest.raises(ValueError, match="url"):
+            MCPServerConfig(transport="sse")
+
+    def test_stdio_with_command_ok(self):
+        from maos.config.models import MCPServerConfig
+
+        cfg = MCPServerConfig(transport="stdio", command=["python", "server.py"])
+        assert cfg.command == ["python", "server.py"]
+
+    def test_http_with_url_ok(self):
+        from maos.config.models import MCPServerConfig
+
+        cfg = MCPServerConfig(transport="http", url="http://localhost:8080")
+        assert cfg.url == "http://localhost:8080"
+
+
+class TestCheckpointerConfigValidation:
+    """R11-config: CheckpointerConfig validates postgres requirements."""
+
+    def test_postgres_requires_uri(self):
+        from maos.config.models import CheckpointerConfig
+
+        with pytest.raises(ValueError, match="postgres_uri"):
+            CheckpointerConfig(type="postgres")
+
+    def test_postgres_with_uri_ok(self):
+        from maos.config.models import CheckpointerConfig
+
+        cfg = CheckpointerConfig(type="postgres", postgres_uri="postgresql://x")
+        assert cfg.postgres_uri == "postgresql://x"
+
+    def test_postgres_with_uri_env_ok(self):
+        from maos.config.models import CheckpointerConfig
+
+        cfg = CheckpointerConfig(type="postgres", postgres_uri_env="PG_URI")
+        assert cfg.postgres_uri_env == "PG_URI"
+
+    def test_memory_no_requirements(self):
+        from maos.config.models import CheckpointerConfig
+
+        cfg = CheckpointerConfig(type="memory")
+        assert cfg.type == "memory"
+
+
+class TestValidateReferencesSupervisorCount:
+    """R11-config: validate_references checks supervisor count."""
+
+    def test_no_supervisor(self):
+        from maos.config.models import (
+            AgentConfig,
+            AgentKind,
+            Config,
+            LLMConfig,
+            LLMProvider,
+        )
+
+        config = Config(
+            llms={"default": LLMConfig(provider=LLMProvider.OPENAI, model="gpt-4")},
+            agents={
+                "worker": AgentConfig(
+                    kind=AgentKind.NATIVE_WORKER,
+                    system_prompt="test",
+                )
+            },
+        )
+        errors = config.validate_references()
+        assert any("No agent with kind 'supervisor'" in e for e in errors)
+
+    def test_multiple_supervisors(self):
+        from maos.config.models import (
+            AgentConfig,
+            AgentKind,
+            Config,
+            LLMConfig,
+            LLMProvider,
+        )
+
+        config = Config(
+            llms={"default": LLMConfig(provider=LLMProvider.OPENAI, model="gpt-4")},
+            agents={
+                "sup1": AgentConfig(kind=AgentKind.SUPERVISOR, system_prompt="a"),
+                "sup2": AgentConfig(kind=AgentKind.SUPERVISOR, system_prompt="b"),
+            },
+        )
+        errors = config.validate_references()
+        assert any("Multiple supervisors" in e for e in errors)
+
+    def test_agent_unknown_tool_reference(self):
+        from maos.config.models import (
+            AgentConfig,
+            AgentKind,
+            Config,
+            LLMConfig,
+            LLMProvider,
+        )
+
+        config = Config(
+            llms={"default": LLMConfig(provider=LLMProvider.OPENAI, model="gpt-4")},
+            agents={
+                "sup": AgentConfig(
+                    kind=AgentKind.SUPERVISOR, system_prompt="test"
+                ),
+                "worker": AgentConfig(
+                    kind=AgentKind.NATIVE_WORKER,
+                    system_prompt="test",
+                    tools=["nonexistent_tool"],
+                ),
+            },
+        )
+        errors = config.validate_references()
+        assert any("unknown tool 'nonexistent_tool'" in e for e in errors)

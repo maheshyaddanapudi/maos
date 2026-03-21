@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Any
 
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 
-class DiagnosticPhase(Enum):
+class DiagnosticPhase(StrEnum):
     """Phases of the differential diagnosis protocol."""
 
     INTAKE = "intake"

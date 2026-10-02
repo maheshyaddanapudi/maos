@@ -1,16 +1,17 @@
 """Unit tests for LLM module."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
-from maos.llm.base import LLMAdapter, LLMResponse, Message, ToolCallRequest, ToolDefinition
+import pytest
+
+from maos.config.models import LLMConfig, LLMProvider
+from maos.llm.base import LLMResponse, Message, ToolCallRequest, ToolDefinition
 from maos.llm.factory import LLMFactory
 from maos.llm.registry import LLMRegistry
-from maos.config.models import LLMConfig, LLMProvider
-
 from tests.mocks.llm import MockLLMAdapter, MockSupervisorLLM
 
 
+@pytest.mark.unit
 class TestMessage:
     """Tests for Message class."""
 
@@ -47,35 +48,25 @@ class TestMessage:
         assert d["name"] == "user1"
 
 
+@pytest.mark.unit
 class TestLLMResponse:
     """Tests for LLMResponse class."""
 
     def test_simple_response(self):
         """Test simple response without tool calls."""
-        response = LLMResponse(
-            content="Hello!",
-            tool_calls=[],
-            finish_reason="stop"
-        )
+        response = LLMResponse(content="Hello!", tool_calls=[], finish_reason="stop")
         assert response.content == "Hello!"
         assert not response.has_tool_calls
 
     def test_response_with_tools(self):
         """Test response with tool calls."""
-        tool_call = ToolCallRequest(
-            id="call_1",
-            name="search",
-            arguments={"query": "test"}
-        )
-        response = LLMResponse(
-            content="",
-            tool_calls=[tool_call],
-            finish_reason="tool_calls"
-        )
+        tool_call = ToolCallRequest(id="call_1", name="search", arguments={"query": "test"})
+        response = LLMResponse(content="", tool_calls=[tool_call], finish_reason="tool_calls")
         assert response.has_tool_calls
         assert len(response.tool_calls) == 1
 
 
+@pytest.mark.unit
 class TestToolDefinition:
     """Tests for ToolDefinition class."""
 
@@ -84,21 +75,16 @@ class TestToolDefinition:
         tool = ToolDefinition(
             name="search",
             description="Search for information",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"}
-                }
-            }
+            parameters={"type": "object", "properties": {"query": {"type": "string"}}},
         )
         assert tool.name == "search"
         assert "query" in tool.parameters["properties"]
 
 
+@pytest.mark.unit
 class TestMockLLMAdapter:
     """Tests for MockLLMAdapter."""
 
-    @pytest.mark.asyncio
     async def test_invoke(self):
         """Test mock invoke method."""
         adapter = MockLLMAdapter(responses=["Response 1", "Response 2"])
@@ -111,7 +97,6 @@ class TestMockLLMAdapter:
         assert response2.content == "Response 2"
         assert adapter.call_count == 2
 
-    @pytest.mark.asyncio
     async def test_stream(self):
         """Test mock stream method."""
         adapter = MockLLMAdapter(responses=["Hello world"])
@@ -123,7 +108,6 @@ class TestMockLLMAdapter:
         full_response = "".join(chunks)
         assert full_response == "Hello world"
 
-    @pytest.mark.asyncio
     async def test_invoke_history(self):
         """Test that invoke history is recorded."""
         adapter = MockLLMAdapter()
@@ -134,10 +118,10 @@ class TestMockLLMAdapter:
         assert adapter.invoke_history[0]["messages"][0].content == "Test"
 
 
+@pytest.mark.unit
 class TestMockSupervisorLLM:
     """Tests for MockSupervisorLLM."""
 
-    @pytest.mark.asyncio
     async def test_routing_sequence(self):
         """Test routing through sequence."""
         adapter = MockSupervisorLLM(routing_sequence=["worker1", "worker2", "END"])
@@ -152,6 +136,7 @@ class TestMockSupervisorLLM:
         assert "END" in response3.content
 
 
+@pytest.mark.unit
 class TestLLMRegistry:
     """Tests for LLMRegistry."""
 
@@ -196,16 +181,14 @@ class TestLLMRegistry:
         assert set(names) == {"adapter1", "adapter2"}
 
 
+@pytest.mark.unit
 class TestLLMFactory:
     """Tests for LLMFactory."""
 
     def test_create_openai(self):
         """Test creating OpenAI adapter."""
         factory = LLMFactory()
-        config = LLMConfig(
-            provider=LLMProvider.OPENAI,
-            model="gpt-4o-mini"
-        )
+        config = LLMConfig(provider=LLMProvider.OPENAI, model="gpt-4o-mini")
 
         with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
             adapter = factory.create(config)
@@ -214,10 +197,7 @@ class TestLLMFactory:
     def test_create_anthropic(self):
         """Test creating Anthropic adapter."""
         factory = LLMFactory()
-        config = LLMConfig(
-            provider=LLMProvider.ANTHROPIC,
-            model="claude-3-5-sonnet-20241022"
-        )
+        config = LLMConfig(provider=LLMProvider.ANTHROPIC, model="claude-3-5-sonnet-20241022")
 
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
             adapter = factory.create(config)
@@ -227,9 +207,7 @@ class TestLLMFactory:
         """Test creating adapter with custom API key env var."""
         factory = LLMFactory()
         config = LLMConfig(
-            provider=LLMProvider.OPENAI,
-            model="gpt-4o-mini",
-            api_key_env="CUSTOM_API_KEY"
+            provider=LLMProvider.OPENAI, model="gpt-4o-mini", api_key_env="CUSTOM_API_KEY"
         )
 
         with patch.dict("os.environ", {"CUSTOM_API_KEY": "custom-key"}):

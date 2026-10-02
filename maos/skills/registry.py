@@ -1,13 +1,11 @@
 """Registries for skills and skillsets."""
 
-from typing import Dict, List, Optional
-
 import structlog
 
 from maos.config.models import SkillConfig, SkillsetConfig
 from maos.skills.models import Skill, Skillset
-from maos.tools.registry import ToolRegistry
 from maos.tools.models import Tool
+from maos.tools.registry import ToolRegistry
 
 logger = structlog.get_logger()
 
@@ -23,9 +21,9 @@ class SkillRegistry:
             tool_registry: Registry of tools.
         """
         self._tool_registry = tool_registry
-        self._skills: Dict[str, Skill] = {}
+        self._skills: dict[str, Skill] = {}
 
-    def build(self, skill_configs: Dict[str, SkillConfig]) -> None:
+    def build(self, skill_configs: dict[str, SkillConfig]) -> None:
         """
         Build skills from configuration.
 
@@ -44,17 +42,9 @@ class SkillRegistry:
                 missing_tools.append(tool_id)
 
         if missing_tools:
-            logger.warning(
-                "skill_has_missing_tools",
-                skill=name,
-                missing_tools=missing_tools
-            )
+            logger.warning("skill_has_missing_tools", skill=name, missing_tools=missing_tools)
 
-        skill = Skill(
-            name=name,
-            description=config.description,
-            tool_ids=config.tools
-        )
+        skill = Skill(name=name, description=config.description, tool_ids=config.tools)
         self._skills[name] = skill
         logger.debug("built_skill", skill=name, tools=len(config.tools))
 
@@ -62,7 +52,7 @@ class SkillRegistry:
         """Register a skill."""
         self._skills[skill.name] = skill
 
-    def get(self, name: str) -> Optional[Skill]:
+    def get(self, name: str) -> Skill | None:
         """Get a skill by name."""
         return self._skills.get(name)
 
@@ -73,25 +63,22 @@ class SkillRegistry:
             raise KeyError(f"Skill not found: {name}")
         return skill
 
-    def get_tools_for_skill(self, name: str) -> List[Tool]:
+    def get_tools_for_skill(self, name: str) -> list[Tool]:
         """Get resolved tools for a skill."""
         skill = self.get(name)
         if skill is None:
             return []
         return skill.get_tools(self._tool_registry)
 
-    def find_skills_with_tool(self, tool_id: str) -> List[Skill]:
+    def find_skills_with_tool(self, tool_id: str) -> list[Skill]:
         """Find skills containing a specific tool."""
-        return [
-            skill for skill in self._skills.values()
-            if tool_id in skill.tool_ids
-        ]
+        return [skill for skill in self._skills.values() if tool_id in skill.tool_ids]
 
-    def list_all(self) -> List[Skill]:
+    def list_all(self) -> list[Skill]:
         """List all skills."""
         return list(self._skills.values())
 
-    def list_names(self) -> List[str]:
+    def list_names(self) -> list[str]:
         """List all skill names."""
         return list(self._skills.keys())
 
@@ -115,9 +102,9 @@ class SkillsetRegistry:
         """
         self._skill_registry = skill_registry
         self._tool_registry = tool_registry
-        self._skillsets: Dict[str, Skillset] = {}
+        self._skillsets: dict[str, Skillset] = {}
 
-    def build(self, skillset_configs: Dict[str, SkillsetConfig]) -> None:
+    def build(self, skillset_configs: dict[str, SkillsetConfig]) -> None:
         """
         Build skillsets from configuration.
 
@@ -137,15 +124,11 @@ class SkillsetRegistry:
 
         if missing_skills:
             logger.warning(
-                "skillset_has_missing_skills",
-                skillset=name,
-                missing_skills=missing_skills
+                "skillset_has_missing_skills", skillset=name, missing_skills=missing_skills
             )
 
         skillset = Skillset(
-            name=name,
-            description=config.description or "",
-            skill_names=config.skills
+            name=name, description=config.description or "", skill_names=config.skills
         )
         self._skillsets[name] = skillset
         logger.debug("built_skillset", skillset=name, skills=len(config.skills))
@@ -154,7 +137,7 @@ class SkillsetRegistry:
         """Register a skillset."""
         self._skillsets[skillset.name] = skillset
 
-    def get(self, name: str) -> Optional[Skillset]:
+    def get(self, name: str) -> Skillset | None:
         """Get a skillset by name."""
         return self._skillsets.get(name)
 
@@ -165,25 +148,25 @@ class SkillsetRegistry:
             raise KeyError(f"Skillset not found: {name}")
         return skillset
 
-    def get_all_tools(self, name: str) -> List[Tool]:
+    def get_all_tools(self, name: str) -> list[Tool]:
         """Get all tools across all skills in a skillset."""
         skillset = self.get(name)
         if skillset is None:
             return []
         return skillset.get_all_tools(self._skill_registry, self._tool_registry)
 
-    def get_skill_names(self, name: str) -> List[str]:
+    def get_skill_names(self, name: str) -> list[str]:
         """Get skill names in a skillset."""
         skillset = self.get(name)
         if skillset is None:
             return []
         return skillset.skill_names
 
-    def list_all(self) -> List[Skillset]:
+    def list_all(self) -> list[Skillset]:
         """List all skillsets."""
         return list(self._skillsets.values())
 
-    def list_names(self) -> List[str]:
+    def list_names(self) -> list[str]:
         """List all skillset names."""
         return list(self._skillsets.keys())
 

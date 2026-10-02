@@ -1,0 +1,41 @@
+# MAOS Example Configuration
+# Copy this file and customize for your deployment
+
+llms:
+  default:
+    provider: openai
+    model: gpt-4o
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.7
+    max_tokens: 4096
+
+mcp_servers: {}
+
+tools: {}
+
+skills: {}
+
+skillsets: {}
+
+agents:
+  supervisor:
+    kind: supervisor
+    llm: default
+    system_prompt: |
+      You are a helpful assistant that coordinates tasks.
+      Route requests to the appropriate worker agent.
+
+  general_worker:
+    kind: worker
+    llm: default
+    system_prompt: |
+      You are a general-purpose assistant.
+      Answer questions and complete tasks accurately.
+
+graph:
+  max_iterations: 12
+  checkpointer: memory
+
+serving:
+  host: "0.0.0.0"
+  port: 8000

@@ -1,32 +1,98 @@
 """A2A agent discovery."""
 
 import asyncio
-from typing import List, Optional
+from typing import cast
 from urllib.parse import urljoin
 
 import httpx
 import structlog
 
-from maos.config.models import A2AConfig, A2AImportPolicy
 from maos.a2a.models import AgentCard, DiscoveredAgent, HostIndex
+from maos.config.models import A2AConfig, A2AImportPolicy
 
 logger = structlog.get_logger()
+
+# Private/internal IP ranges that should not be accessed during discovery
+_BLOCKED_IPV4_PREFIXES = (
+    "127.",
+    "10.",
+    "192.168.",
+    "0.",
+    "169.254.",  # Link-local
+)
+
+# IPv6 prefixes (urlparse strips brackets, so hostname is e.g. "::1", "fc00::1")
+_BLOCKED_IPV6_PREFIXES = (
+    "::1",  # Loopback
+    "fc",  # Unique local fc00::/7
+    "fd",  # Unique local fc00::/7
+    "fe80:",  # Link-local
+)
+
+_BLOCKED_HOSTNAMES = {
+    "localhost",
+    "metadata.google.internal",
+    "169.254.169.254",  # Cloud metadata endpoint
+}
+
+
+def _is_internal_url(url: str) -> bool:
+    """Check if URL points to an internal/private network address."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+
+    # Only allow http and https schemes
+    if parsed.scheme not in ("http", "https"):
+        return True
+
+    hostname = (parsed.hostname or "").lower()
+
+    if hostname in _BLOCKED_HOSTNAMES:
+        return True
+
+    # IPv6 addresses contain colons (urlparse strips brackets)
+    if ":" in hostname:
+        if any(hostname.startswith(prefix) for prefix in _BLOCKED_IPV6_PREFIXES):
+            return True
+    else:
+        if any(hostname.startswith(prefix) for prefix in _BLOCKED_IPV4_PREFIXES):
+            return True
+
+    # Check for 172.16.0.0/12 range
+    if hostname.startswith("172."):
+        try:
+            second_octet = int(hostname.split(".")[1])
+            if 16 <= second_octet <= 31:
+                return True
+        except (IndexError, ValueError):
+            pass
+
+    return False
 
 
 class A2ADiscovery:
     """Discover external A2A agents from seed URLs."""
 
-    def __init__(self, http_client: Optional[httpx.AsyncClient] = None):
+    def __init__(self, http_client: httpx.AsyncClient | None = None):
         """
         Initialize A2A discovery.
 
         Args:
-            http_client: HTTP client to use. Creates one if not provided.
+            http_client: HTTP client to use. Must have follow_redirects=False
+                for SSRF safety. If None, a safe client is created automatically.
         """
+        if http_client is not None:
+            if getattr(http_client, "follow_redirects", None) is not False:
+                logger.warning(
+                    "a2a_discovery_unsafe_http_client",
+                    message="Injected http_client may follow redirects; "
+                    "use follow_redirects=False for SSRF safety",
+                )
         self._http_client = http_client
         self._owns_client = http_client is None
 
-    async def discover(self, config: A2AConfig) -> List[DiscoveredAgent]:
+    async def discover(self, config: A2AConfig) -> list[DiscoveredAgent]:
         """
         Discover agents from seed URLs.
 
@@ -47,7 +113,8 @@ class A2ADiscovery:
         # Create client if needed
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(
-                timeout=config.discovery.timeout_seconds
+                timeout=config.discovery.timeout_seconds,
+                follow_redirects=False,
             )
 
         try:
@@ -63,7 +130,7 @@ class A2ADiscovery:
             logger.info(
                 "a2a_discovery_complete",
                 total_discovered=len(discovered),
-                after_policy=len(filtered)
+                after_policy=len(filtered),
             )
 
             return filtered
@@ -73,24 +140,21 @@ class A2ADiscovery:
                 await self._http_client.aclose()
                 self._http_client = None
 
-    async def _discover_parallel(self, config: A2AConfig) -> List[DiscoveredAgent]:
+    async def _discover_parallel(self, config: A2AConfig) -> list[DiscoveredAgent]:
         """Discover agents from all seeds in parallel."""
-        tasks = [
-            self._discover_from_seed(seed, config)
-            for seed in config.discovery.seeds
-        ]
+        tasks = [self._discover_from_seed(seed, config) for seed in config.discovery.seeds]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        discovered = []
+        discovered: list[DiscoveredAgent] = []
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.warning("seed_discovery_failed", error=str(result))
             else:
                 discovered.extend(result)
 
         return discovered
 
-    async def _discover_sequential(self, config: A2AConfig) -> List[DiscoveredAgent]:
+    async def _discover_sequential(self, config: A2AConfig) -> list[DiscoveredAgent]:
         """Discover agents from all seeds sequentially."""
         discovered = []
         for seed in config.discovery.seeds:
@@ -101,12 +165,12 @@ class A2ADiscovery:
                 logger.warning("seed_discovery_failed", seed=seed, error=str(e))
         return discovered
 
-    async def _discover_from_seed(
-        self,
-        seed_url: str,
-        config: A2AConfig
-    ) -> List[DiscoveredAgent]:
+    async def _discover_from_seed(self, seed_url: str, config: A2AConfig) -> list[DiscoveredAgent]:
         """Discover agents from a single seed URL."""
+        if _is_internal_url(seed_url):
+            logger.warning("ssrf_blocked_seed_url", url=seed_url)
+            return []
+
         discovered = []
 
         # Try host index first
@@ -114,8 +178,7 @@ class A2ADiscovery:
         if host_index:
             for agent_info in host_index.agents:
                 card_path = agent_info.get(
-                    "agent_card_path",
-                    f"{agent_info['path']}/.well-known/agent.json"
+                    "agent_card_path", f"{agent_info['path']}/.well-known/agent.json"
                 )
                 card_url = urljoin(seed_url, card_path)
                 agent = await self._fetch_and_create_agent(card_url, config)
@@ -133,27 +196,28 @@ class A2ADiscovery:
 
         return discovered
 
-    async def _fetch_host_index(
-        self,
-        base_url: str,
-        config: A2AConfig
-    ) -> Optional[HostIndex]:
+    async def _fetch_host_index(self, base_url: str, config: A2AConfig) -> HostIndex | None:
         """Fetch host index from a multi-agent host."""
         index_url = urljoin(base_url, config.discovery.host_index_path)
         try:
+            assert self._http_client is not None
             response = await self._http_client.get(index_url)
             if response.status_code == 200:
-                return HostIndex.model_validate(response.json())
+                data = response.json()
+                if data is not None:
+                    return cast(HostIndex, HostIndex.model_validate(data))
         except Exception as e:
             logger.debug("host_index_not_found", url=index_url, error=str(e))
         return None
 
     async def _fetch_and_create_agent(
-        self,
-        card_url: str,
-        config: A2AConfig
-    ) -> Optional[DiscoveredAgent]:
+        self, card_url: str, config: A2AConfig
+    ) -> DiscoveredAgent | None:
         """Fetch agent card and create DiscoveredAgent."""
+        if _is_internal_url(card_url):
+            logger.warning("ssrf_blocked_card_url", url=card_url)
+            return None
+
         card = await self._fetch_agent_card(card_url)
         if card is None:
             return None
@@ -164,59 +228,57 @@ class A2ADiscovery:
             # Derive from card URL
             endpoint = card_url.rsplit("/.well-known", 1)[0]
 
+        # Validate endpoint against SSRF
+        if _is_internal_url(endpoint):
+            logger.warning("ssrf_blocked_agent_endpoint", endpoint=endpoint)
+            return None
+
         return DiscoveredAgent(
             card=card,
             source_url=card_url,
             endpoint=endpoint,
-            import_mode="node" if config.import_policy.mode == "langgraph_nodes" else "tool"
+            import_mode="node" if config.import_policy.mode == "langgraph_nodes" else "tool",
         )
 
-    async def _fetch_agent_card(self, url: str) -> Optional[AgentCard]:
+    async def _fetch_agent_card(self, url: str) -> AgentCard | None:
         """Fetch and parse an agent card."""
         try:
+            assert self._http_client is not None
             response = await self._http_client.get(url)
             if response.status_code == 200:
-                card = AgentCard.model_validate(response.json())
-                card.url = url
-                logger.debug("fetched_agent_card", name=card.name, url=url)
-                return card
+                data = response.json()
+                if data is not None:
+                    card = cast(AgentCard, AgentCard.model_validate(data))
+                    card.url = url
+                    logger.debug("fetched_agent_card", name=card.name, url=url)
+                    return card
         except Exception as e:
             logger.warning("failed_to_fetch_agent_card", url=url, error=str(e))
         return None
 
     def _apply_policy(
-        self,
-        agents: List[DiscoveredAgent],
-        policy: A2AImportPolicy
-    ) -> List[DiscoveredAgent]:
+        self, agents: list[DiscoveredAgent], policy: A2AImportPolicy
+    ) -> list[DiscoveredAgent]:
         """Apply import policy filters to discovered agents."""
         filtered = agents
 
         # Filter by tags
         if policy.include_tags:
             filtered = [
-                a for a in filtered
-                if any(t in a.card.all_tags for t in policy.include_tags)
+                a for a in filtered if any(t in a.card.all_tags for t in policy.include_tags)
             ]
 
         if policy.exclude_tags:
             filtered = [
-                a for a in filtered
-                if not any(t in a.card.all_tags for t in policy.exclude_tags)
+                a for a in filtered if not any(t in a.card.all_tags for t in policy.exclude_tags)
             ]
 
         # Filter by names
         if policy.include_names:
-            filtered = [
-                a for a in filtered
-                if a.card.name in policy.include_names
-            ]
+            filtered = [a for a in filtered if a.card.name in policy.include_names]
 
         if policy.exclude_names:
-            filtered = [
-                a for a in filtered
-                if a.card.name not in policy.exclude_names
-            ]
+            filtered = [a for a in filtered if a.card.name not in policy.exclude_names]
 
         # Apply limit
-        return filtered[:policy.max_agents]
+        return filtered[: policy.max_agents]

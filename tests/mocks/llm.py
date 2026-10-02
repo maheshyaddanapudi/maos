@@ -1,6 +1,7 @@
 """Mock LLM adapter for testing."""
 
-from typing import Any, AsyncIterator, Dict, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from maos.llm.base import (
     LLMAdapter,
@@ -17,9 +18,9 @@ class MockLLMAdapter(LLMAdapter):
 
     def __init__(
         self,
-        responses: Optional[List[str]] = None,
-        tool_calls: Optional[List[List[ToolCallRequest]]] = None,
-        model_name: str = "mock-model"
+        responses: list[str] | None = None,
+        tool_calls: list[list[ToolCallRequest]] | None = None,
+        model_name: str = "mock-model",
     ):
         """
         Initialize the mock adapter.
@@ -33,19 +34,14 @@ class MockLLMAdapter(LLMAdapter):
         self._tool_calls = tool_calls or []
         self._model_name = model_name
         self._call_count = 0
-        self._invoke_history: List[Dict[str, Any]] = []
+        self._invoke_history: list[dict[str, Any]] = []
 
     async def invoke(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None
+        self, messages: list[Message], tools: list[ToolDefinition] | None = None
     ) -> LLMResponse:
         """Return a mock response."""
         # Record the call
-        self._invoke_history.append({
-            "messages": messages,
-            "tools": tools
-        })
+        self._invoke_history.append({"messages": messages, "tools": tools})
 
         # Get response content
         response_idx = min(self._call_count, len(self._responses) - 1)
@@ -61,13 +57,11 @@ class MockLLMAdapter(LLMAdapter):
         return LLMResponse(
             content=content,
             tool_calls=tool_call_list,
-            finish_reason="stop" if not tool_call_list else "tool_calls"
+            finish_reason="stop" if not tool_call_list else "tool_calls",
         )
 
     async def stream(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None
+        self, messages: list[Message], tools: list[ToolDefinition] | None = None
     ) -> AsyncIterator[LLMChunk]:
         """Stream a mock response."""
         response = await self.invoke(messages, tools)
@@ -77,10 +71,9 @@ class MockLLMAdapter(LLMAdapter):
         chunk_size = 10
 
         for i in range(0, len(content), chunk_size):
-            chunk = content[i:i + chunk_size]
+            chunk = content[i : i + chunk_size]
             yield LLMChunk(
-                content=chunk,
-                finish_reason=None if i + chunk_size < len(content) else "stop"
+                content=chunk, finish_reason=None if i + chunk_size < len(content) else "stop"
             )
 
     def get_model_name(self) -> str:
@@ -93,7 +86,7 @@ class MockLLMAdapter(LLMAdapter):
         return self._call_count
 
     @property
-    def invoke_history(self) -> List[Dict[str, Any]]:
+    def invoke_history(self) -> list[dict[str, Any]]:
         """Get history of invoke calls."""
         return self._invoke_history
 
@@ -107,9 +100,7 @@ class MockSupervisorLLM(MockLLMAdapter):
     """Mock LLM that returns supervisor routing decisions."""
 
     def __init__(
-        self,
-        routing_sequence: Optional[List[str]] = None,
-        model_name: str = "mock-supervisor"
+        self, routing_sequence: list[str] | None = None, model_name: str = "mock-supervisor"
     ):
         """
         Initialize with routing sequence.
@@ -141,9 +132,9 @@ class MockToolCallingLLM(MockLLMAdapter):
 
     def __init__(
         self,
-        tool_call_sequence: List[Dict[str, Any]],
+        tool_call_sequence: list[dict[str, Any]],
         final_response: str = "Task completed",
-        model_name: str = "mock-tool-caller"
+        model_name: str = "mock-tool-caller",
     ):
         """
         Initialize with tool call sequence.
@@ -156,13 +147,15 @@ class MockToolCallingLLM(MockLLMAdapter):
         # Build tool calls
         tool_calls = []
         for i, tc in enumerate(tool_call_sequence):
-            tool_calls.append([
-                ToolCallRequest(
-                    id=f"call_{i}",
-                    name=tc.get("name", "unknown"),
-                    arguments=tc.get("arguments", {})
-                )
-            ])
+            tool_calls.append(
+                [
+                    ToolCallRequest(
+                        id=f"call_{i}",
+                        name=tc.get("name", "unknown"),
+                        arguments=tc.get("arguments", {}),
+                    )
+                ]
+            )
 
         # Empty tool calls for final response
         tool_calls.append([])
@@ -170,8 +163,4 @@ class MockToolCallingLLM(MockLLMAdapter):
         # Responses - empty for tool calls, final response at end
         responses = [""] * len(tool_call_sequence) + [final_response]
 
-        super().__init__(
-            responses=responses,
-            tool_calls=tool_calls,
-            model_name=model_name
-        )
+        super().__init__(responses=responses, tool_calls=tool_calls, model_name=model_name)

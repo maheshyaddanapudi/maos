@@ -1,12 +1,12 @@
 """Tool registry for materializing tools from MCP servers."""
 
-from typing import Dict, List, Optional
+from typing import Any
 
 import structlog
 
 from maos.config.models import ToolConfig
 from maos.mcp.registry import MCPRegistry
-from maos.tools.models import Tool, JsonSchema
+from maos.tools.models import JsonSchema, Tool
 
 logger = structlog.get_logger()
 
@@ -22,9 +22,9 @@ class ToolRegistry:
             mcp_registry: MCP registry for server connections.
         """
         self._mcp_registry = mcp_registry
-        self._tools: Dict[str, Tool] = {}
+        self._tools: dict[str, Tool] = {}
 
-    async def materialize(self, tool_configs: Dict[str, ToolConfig]) -> None:
+    async def materialize(self, tool_configs: dict[str, ToolConfig]) -> None:
         """
         Materialize tools from configuration.
 
@@ -35,17 +35,9 @@ class ToolRegistry:
             try:
                 await self._materialize_tool(tool_id, config)
             except Exception as e:
-                logger.warning(
-                    "failed_to_materialize_tool",
-                    tool_id=tool_id,
-                    error=str(e)
-                )
+                logger.warning("failed_to_materialize_tool", tool_id=tool_id, error=str(e))
 
-    async def _materialize_tool(
-        self,
-        tool_id: str,
-        config: ToolConfig
-    ) -> Tool:
+    async def _materialize_tool(self, tool_id: str, config: ToolConfig) -> Tool:
         """Materialize a single tool."""
         # Get MCP connection
         connection = self._mcp_registry.get_connection(config.server)
@@ -60,9 +52,7 @@ class ToolRegistry:
                 break
 
         if mcp_tool is None:
-            raise ValueError(
-                f"Tool '{config.tool_name}' not found on server '{config.server}'"
-            )
+            raise ValueError(f"Tool '{config.tool_name}' not found on server '{config.server}'")
 
         # Create tool with invoke function bound to connection
         tool = Tool(
@@ -71,12 +61,16 @@ class ToolRegistry:
             description=config.description_override or mcp_tool.description,
             server=config.server,
             mcp_tool_name=config.tool_name,
-            input_schema=JsonSchema(**mcp_tool.input_schema) if mcp_tool.input_schema else JsonSchema(),
-            timeout_seconds=config.timeout_seconds or 30
+            input_schema=JsonSchema(**mcp_tool.input_schema)
+            if mcp_tool.input_schema
+            else JsonSchema(),
+            timeout_seconds=config.timeout_seconds or 30,
         )
 
         # Bind the invoke function
-        async def invoke(args: Dict, conn=connection, tool_name=config.tool_name):
+        async def invoke(
+            args: dict[str, Any], conn: Any = connection, tool_name: str = config.tool_name
+        ) -> Any:
             return await conn.call_tool(tool_name, args)
 
         tool.set_invoke_fn(invoke)
@@ -95,7 +89,7 @@ class ToolRegistry:
         """
         self._tools[tool.id] = tool
 
-    def get(self, tool_id: str) -> Optional[Tool]:
+    def get(self, tool_id: str) -> Tool | None:
         """
         Get a tool by ID.
 
@@ -125,15 +119,15 @@ class ToolRegistry:
             raise KeyError(f"Tool not found: {tool_id}")
         return tool
 
-    def list_all(self) -> List[Tool]:
+    def list_all(self) -> list[Tool]:
         """List all registered tools."""
         return list(self._tools.values())
 
-    def list_by_server(self, server: str) -> List[Tool]:
+    def list_by_server(self, server: str) -> list[Tool]:
         """List tools from a specific MCP server."""
         return [t for t in self._tools.values() if t.server == server]
 
-    def list_ids(self) -> List[str]:
+    def list_ids(self) -> list[str]:
         """List all tool IDs."""
         return list(self._tools.keys())
 

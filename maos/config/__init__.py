@@ -1,20 +1,20 @@
 """Configuration module for MAOS."""
 
+from maos.config.loader import ConfigLoader
 from maos.config.models import (
+    A2AConfig,
+    AgentConfig,
+    AgentKind,
     Config,
+    GraphConfig,
     LLMConfig,
     LLMProvider,
     MCPServerConfig,
-    ToolConfig,
+    ServingConfig,
     SkillConfig,
     SkillsetConfig,
-    AgentConfig,
-    AgentKind,
-    GraphConfig,
-    ServingConfig,
-    A2AConfig,
+    ToolConfig,
 )
-from maos.config.loader import ConfigLoader
 
 __all__ = [
     "Config",

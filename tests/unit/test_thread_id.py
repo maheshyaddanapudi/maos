@@ -1,23 +1,24 @@
 """Unit tests for thread ID resolution utilities."""
 
 import uuid
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
 from maos.api.thread_id import (
+    LANGGRAPH_CONFIG,
+    OPENWEBUI_CONFIG,
     ThreadIdConfig,
     ThreadIdResolver,
-    DEFAULT_CONFIG,
-    OPENWEBUI_CONFIG,
-    LANGGRAPH_CONFIG,
-    resolve_thread_id,
-    get_thread_id_from_openwebui,
     default_resolver,
-    openwebui_resolver,
+    get_thread_id_from_openwebui,
     langgraph_resolver,
+    openwebui_resolver,
+    resolve_thread_id,
 )
 
 
+@pytest.mark.unit
 class TestThreadIdConfig:
     """Tests for ThreadIdConfig dataclass."""
 
@@ -45,7 +46,7 @@ class TestThreadIdConfig:
             header_fields=["X-Custom-Id"],
             query_fields=["cid"],
             generate_if_missing=False,
-            prefix="custom-"
+            prefix="custom-",
         )
 
         assert config.body_fields == ["custom_id"]
@@ -66,6 +67,7 @@ class TestThreadIdConfig:
         assert "thread_id" in LANGGRAPH_CONFIG.query_fields
 
 
+@pytest.mark.unit
 class TestThreadIdResolver:
     """Tests for ThreadIdResolver class."""
 
@@ -76,7 +78,7 @@ class TestThreadIdResolver:
         result = resolver.resolve(
             body={"thread_id": "body-id"},
             headers={"X-Thread-Id": "header-id"},
-            explicit_id="explicit-id"
+            explicit_id="explicit-id",
         )
 
         assert result == "explicit-id"
@@ -86,8 +88,7 @@ class TestThreadIdResolver:
         resolver = ThreadIdResolver()
 
         result = resolver.resolve(
-            body={"thread_id": "body-thread-id"},
-            headers={"X-Thread-Id": "header-id"}
+            body={"thread_id": "body-thread-id"}, headers={"X-Thread-Id": "header-id"}
         )
 
         assert result == "body-thread-id"
@@ -98,11 +99,7 @@ class TestThreadIdResolver:
 
         # First field wins
         result = resolver.resolve(
-            body={
-                "thread_id": "first",
-                "session_id": "second",
-                "chat_id": "third"
-            }
+            body={"thread_id": "first", "session_id": "second", "chat_id": "third"}
         )
 
         assert result == "first"
@@ -111,12 +108,7 @@ class TestThreadIdResolver:
         """Test fallback to next body field if first is empty."""
         resolver = ThreadIdResolver()
 
-        result = resolver.resolve(
-            body={
-                "thread_id": "",
-                "session_id": "session-123"
-            }
-        )
+        result = resolver.resolve(body={"thread_id": "", "session_id": "session-123"})
 
         assert result == "session-123"
 
@@ -124,10 +116,7 @@ class TestThreadIdResolver:
         """Test header resolution when body fields empty."""
         resolver = ThreadIdResolver()
 
-        result = resolver.resolve(
-            body={},
-            headers={"X-Thread-Id": "header-thread-id"}
-        )
+        result = resolver.resolve(body={}, headers={"X-Thread-Id": "header-thread-id"})
 
         assert result == "header-thread-id"
 
@@ -135,10 +124,7 @@ class TestThreadIdResolver:
         """Test headers are matched case-insensitively."""
         resolver = ThreadIdResolver()
 
-        result = resolver.resolve(
-            body={},
-            headers={"x-thread-id": "lowercase-header"}
-        )
+        result = resolver.resolve(body={}, headers={"x-thread-id": "lowercase-header"})
 
         assert result == "lowercase-header"
 
@@ -146,10 +132,7 @@ class TestThreadIdResolver:
         """Test X-OpenWebUI-Chat-Id header is recognized."""
         resolver = ThreadIdResolver()
 
-        result = resolver.resolve(
-            body={},
-            headers={"X-OpenWebUI-Chat-Id": "openwebui-chat-123"}
-        )
+        result = resolver.resolve(body={}, headers={"X-OpenWebUI-Chat-Id": "openwebui-chat-123"})
 
         assert result == "openwebui-chat-123"
 
@@ -158,9 +141,7 @@ class TestThreadIdResolver:
         resolver = ThreadIdResolver()
 
         result = resolver.resolve(
-            body={},
-            headers={},
-            query_params={"thread_id": "query-thread-id"}
+            body={}, headers={}, query_params={"thread_id": "query-thread-id"}
         )
 
         assert result == "query-thread-id"
@@ -214,14 +195,12 @@ class TestThreadIdResolver:
         mock_request.headers = {"X-Thread-Id": "header-id"}
         mock_request.query_params = {}
 
-        result = resolver.resolve_from_request(
-            mock_request,
-            body={"thread_id": "body-id"}
-        )
+        result = resolver.resolve_from_request(mock_request, body={"thread_id": "body-id"})
 
         assert result == "body-id"
 
 
+@pytest.mark.unit
 class TestPreConfiguredResolvers:
     """Tests for pre-configured resolver instances."""
 
@@ -249,23 +228,19 @@ class TestPreConfiguredResolvers:
         assert langgraph_resolver.config == LANGGRAPH_CONFIG
 
 
+@pytest.mark.unit
 class TestResolveThreadIdFunction:
     """Tests for the resolve_thread_id convenience function."""
 
     def test_basic_resolution(self):
         """Test basic thread ID resolution."""
-        result = resolve_thread_id(
-            body={"thread_id": "func-thread-id"}
-        )
+        result = resolve_thread_id(body={"thread_id": "func-thread-id"})
 
         assert result == "func-thread-id"
 
     def test_with_explicit_id(self):
         """Test resolution with explicit ID."""
-        result = resolve_thread_id(
-            body={"thread_id": "body-id"},
-            explicit_id="explicit-id"
-        )
+        result = resolve_thread_id(body={"thread_id": "body-id"}, explicit_id="explicit-id")
 
         assert result == "explicit-id"
 
@@ -273,10 +248,7 @@ class TestResolveThreadIdFunction:
         """Test resolution with custom config."""
         config = ThreadIdConfig(body_fields=["my_id"])
 
-        result = resolve_thread_id(
-            body={"my_id": "custom-field-id"},
-            config=config
-        )
+        result = resolve_thread_id(body={"my_id": "custom-field-id"}, config=config)
 
         assert result == "custom-field-id"
 
@@ -298,6 +270,7 @@ class TestResolveThreadIdFunction:
         uuid.UUID(result)
 
 
+@pytest.mark.unit
 class TestGetThreadIdFromOpenwebui:
     """Tests for the OpenWebUI-specific helper function."""
 
@@ -327,14 +300,12 @@ class TestGetThreadIdFromOpenwebui:
         mock_request.headers = {"X-OpenWebUI-Chat-Id": "header-id"}
         mock_request.query_params = {}
 
-        result = get_thread_id_from_openwebui(
-            mock_request,
-            body={"thread_id": "body-id"}
-        )
+        result = get_thread_id_from_openwebui(mock_request, body={"thread_id": "body-id"})
 
         assert result == "body-id"
 
 
+@pytest.mark.unit
 class TestEdgeCases:
     """Tests for edge cases and error handling."""
 
@@ -342,9 +313,7 @@ class TestEdgeCases:
         """Test None values in body are ignored."""
         resolver = ThreadIdResolver()
 
-        result = resolver.resolve(
-            body={"thread_id": None, "session_id": "valid-id"}
-        )
+        result = resolver.resolve(body={"thread_id": None, "session_id": "valid-id"})
 
         assert result == "valid-id"
 
@@ -352,29 +321,25 @@ class TestEdgeCases:
         """Test empty strings in body are ignored."""
         resolver = ThreadIdResolver()
 
-        result = resolver.resolve(
-            body={"thread_id": "", "session_id": "valid-id"}
-        )
+        result = resolver.resolve(body={"thread_id": "", "session_id": "valid-id"})
 
         assert result == "valid-id"
 
-    def test_whitespace_preserved(self):
-        """Test whitespace in IDs is preserved."""
+    def test_whitespace_rejected(self):
+        """Test whitespace in IDs is rejected and a new UUID is generated."""
         resolver = ThreadIdResolver()
 
-        result = resolver.resolve(
-            body={"thread_id": "  spaced-id  "}
-        )
+        result = resolver.resolve(body={"thread_id": "  spaced-id  "})
 
-        assert result == "  spaced-id  "
+        # Whitespace IDs are invalid, should generate a new UUID
+        assert result != "  spaced-id  "
+        assert len(result) == 36  # UUID format
 
     def test_numeric_values_converted(self):
         """Test numeric values are converted to strings."""
         resolver = ThreadIdResolver()
 
-        result = resolver.resolve(
-            body={"thread_id": 12345}
-        )
+        result = resolver.resolve(body={"thread_id": 12345})
 
         assert result == "12345"
 
@@ -383,11 +348,7 @@ class TestEdgeCases:
         resolver = ThreadIdResolver()
 
         result = resolver.resolve(
-            body={},
-            headers={
-                "X-Thread-Id": "thread-id",
-                "X-Session-Id": "session-id"
-            }
+            body={}, headers={"X-Thread-Id": "thread-id", "X-Session-Id": "session-id"}
         )
 
         # X-OpenWebUI-Chat-Id is checked first, then X-Thread-Id
@@ -419,6 +380,7 @@ class TestEdgeCases:
         uuid.UUID(result)
 
 
+@pytest.mark.unit
 class TestIntegrationScenarios:
     """Integration tests for common usage scenarios."""
 
@@ -444,45 +406,39 @@ class TestIntegrationScenarios:
     def test_langgraph_studio_scenario(self):
         """Test LangGraph Studio scenario with explicit thread ID."""
         # LangGraph Studio sends thread_id in body
-        result = resolve_thread_id(
-            body={"thread_id": "lg-thread-123"},
-            config=LANGGRAPH_CONFIG
-        )
+        result = resolve_thread_id(body={"thread_id": "lg-thread-123"}, config=LANGGRAPH_CONFIG)
 
         assert result == "lg-thread-123"
 
     def test_priority_chain_complete(self):
         """Test complete priority chain from explicit to generated."""
         # 1. Explicit ID wins
-        assert resolve_thread_id(
-            body={"thread_id": "body"},
-            headers={"X-Thread-Id": "header"},
-            explicit_id="explicit"
-        ) == "explicit"
+        assert (
+            resolve_thread_id(
+                body={"thread_id": "body"},
+                headers={"X-Thread-Id": "header"},
+                explicit_id="explicit",
+            )
+            == "explicit"
+        )
 
         # 2. Body wins over header
-        assert resolve_thread_id(
-            body={"thread_id": "body"},
-            headers={"X-Thread-Id": "header"}
-        ) == "body"
+        assert (
+            resolve_thread_id(body={"thread_id": "body"}, headers={"X-Thread-Id": "header"})
+            == "body"
+        )
 
         # 3. Header used when body empty
         mock_request = MagicMock()
         mock_request.headers = {"X-Thread-Id": "header"}
         mock_request.query_params = {}
-        assert resolve_thread_id(
-            request=mock_request,
-            body={}
-        ) == "header"
+        assert resolve_thread_id(request=mock_request, body={}) == "header"
 
         # 4. Query param used when header empty
         mock_request2 = MagicMock()
         mock_request2.headers = {}
         mock_request2.query_params = {"thread_id": "query"}
-        assert resolve_thread_id(
-            request=mock_request2,
-            body={}
-        ) == "query"
+        assert resolve_thread_id(request=mock_request2, body={}) == "query"
 
         # 5. UUID generated when all empty
         result = resolve_thread_id(body={}, headers={})

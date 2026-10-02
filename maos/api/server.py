@@ -1,14 +1,34 @@
 """FastAPI server factory for MAOS."""
 
+import os
+import traceback
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
-from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import structlog
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from maos.api.middleware.auth import AuthConfig, AuthMiddleware
+from maos.api.middleware.rate_limiter import (
+    RateLimitConfig,
+    RateLimitMiddleware,
+)
+from maos.api.middleware.security_headers import (
+    SecurityHeadersMiddleware,
+)
+from maos.api.routes import (
+    agents,
+    chat,
+    conversations,
+    health,
+    langgraph_studio,
+    openai_compat,
+    tasks,
+)
 from maos.config.models import Config, ServingConfig
-from maos.api.routes import health, agents, chat, openai_compat, tasks, langgraph_studio, conversations
 
 logger = structlog.get_logger()
 
@@ -20,8 +40,8 @@ class AppContext:
     This is used for dependency injection into route handlers.
     """
 
-    def __init__(self):
-        self.config: Optional[Config] = None
+    def __init__(self) -> None:
+        self.config: Config | None = None
         self.llm_registry = None
         self.mcp_registry = None
         self.tool_registry = None
@@ -32,7 +52,7 @@ class AppContext:
         self.checkpointer = None
         self.conversation_store = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for route handlers."""
         return {
             "config": self.config,
@@ -52,15 +72,15 @@ class AppContext:
 _app_context = AppContext()
 
 
-def get_app_context() -> Dict[str, Any]:
+def get_app_context() -> dict[str, Any]:
     """Dependency for getting app context in routes."""
     return _app_context.to_dict()
 
 
 def create_app(
-    config: Optional[Config] = None,
-    serving_config: Optional[ServingConfig] = None,
-    lifespan: Optional[Callable] = None
+    config: Config | None = None,
+    serving_config: ServingConfig | None = None,
+    lifespan: Callable | None = None,
 ) -> FastAPI:
     """
     Create the FastAPI application.
@@ -80,20 +100,92 @@ def create_app(
         title="MAOS - Multi-Agent Orchestration System",
         description="Config-driven multi-agent orchestration with LangGraph, MCP, and A2A",
         version="0.1.0",
-        lifespan=lifespan
+        lifespan=lifespan,
     )
 
     # Add CORS middleware
+    if "*" in serving.api.cors_origins:
+        logger.warning(
+            "cors_wildcard_origins",
+            message="CORS allows all origins — restrict in production",
+        )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=serving.api.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_credentials="*" not in serving.api.cors_origins,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
     )
 
+    # --- Security middleware ---
+    # Security headers on every response
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # Rate limiting (per-client token bucket)
+    security = serving.security
+    rate_cfg = RateLimitConfig(
+        enabled=security.rate_limit_enabled,
+        requests_per_minute=security.rate_limit_rpm,
+        burst_size=security.rate_limit_burst,
+    )
+    app.add_middleware(RateLimitMiddleware, config=rate_cfg)
+
+    # Authentication (Bearer API keys)
+    api_keys: list[str] = []
+    if security.api_key_env:
+        raw = os.environ.get(security.api_key_env, "")
+        api_keys = [k.strip() for k in raw.split(",") if k.strip()]
+    auth_cfg = AuthConfig(
+        enabled=security.auth_enabled,
+        api_keys=api_keys,
+    )
+    if auth_cfg.enabled and not api_keys:
+        logger.warning(
+            "auth_enabled_no_keys",
+            message="Auth is enabled but no API keys configured — all requests will be rejected. "
+            "Set the api_key_env config or disable auth.",
+        )
+    app.add_middleware(AuthMiddleware, auth_config=auth_cfg)
+
+    # Request ID correlation
+    from maos.api.middleware.request_id import (
+        RequestIdMiddleware,
+    )
+
+    app.add_middleware(RequestIdMiddleware)
+
+    # --- Global exception handler ---
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        """Return standardised JSON for unhandled errors."""
+        if isinstance(exc, HTTPException):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "error": "http_error",
+                    "message": exc.detail,
+                },
+            )
+        logger.error(
+            "unhandled_exception",
+            path=request.url.path,
+            method=request.method,
+            error=str(exc),
+            traceback=traceback.format_exc(),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "internal_server_error",
+                "message": ("An unexpected error occurred."),
+            },
+        )
+
     # Override dependency in all routers
-    def override_context():
+    def override_context() -> dict[str, Any]:
         return get_app_context()
 
     # Include routers with dependency override
@@ -122,22 +214,22 @@ def create_app(
         "fastapi_app_created",
         cors_origins=serving.api.cors_origins,
         host=serving.api.host,
-        port=serving.api.port
+        port=serving.api.port,
     )
 
     return app
 
 
 def set_app_context(
-    llm_registry=None,
-    mcp_registry=None,
-    tool_registry=None,
-    skill_registry=None,
-    skillset_registry=None,
-    agent_registry=None,
-    graph=None,
-    checkpointer=None,
-    conversation_store=None
+    llm_registry: Any = None,
+    mcp_registry: Any = None,
+    tool_registry: Any = None,
+    skill_registry: Any = None,
+    skillset_registry: Any = None,
+    agent_registry: Any = None,
+    graph: Any = None,
+    checkpointer: Any = None,
+    conversation_store: Any = None,
 ) -> None:
     """
     Set the application context.
@@ -173,7 +265,7 @@ def get_context() -> AppContext:
 
 
 @asynccontextmanager
-async def default_lifespan(app: FastAPI):
+async def default_lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Default lifespan manager.
 
@@ -184,11 +276,7 @@ async def default_lifespan(app: FastAPI):
     logger.info("maos_shutting_down")
 
 
-async def run_server(
-    app: FastAPI,
-    host: str = "0.0.0.0",
-    port: int = 7777
-) -> None:
+async def run_server(app: FastAPI, host: str = "127.0.0.1", port: int = 7777) -> None:
     """
     Run the server using uvicorn.
 
@@ -199,11 +287,6 @@ async def run_server(
     """
     import uvicorn
 
-    config = uvicorn.Config(
-        app=app,
-        host=host,
-        port=port,
-        log_level="info"
-    )
+    config = uvicorn.Config(app=app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
     await server.serve()

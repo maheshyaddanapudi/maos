@@ -1,11 +1,13 @@
 """A2A client for communicating with external agents."""
 
 import uuid
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
+from typing import cast
 
 import httpx
 import structlog
 
+from maos.a2a.discovery import _is_internal_url
 from maos.a2a.models import (
     A2AConfiguration,
     A2AMessage,
@@ -15,6 +17,7 @@ from maos.a2a.models import (
     DiscoveredAgent,
     TaskStatus,
 )
+from maos.resilience import retry_with_backoff
 
 logger = structlog.get_logger()
 
@@ -22,18 +25,23 @@ logger = structlog.get_logger()
 class A2AClient:
     """Client for A2A protocol communication."""
 
-    def __init__(
-        self,
-        http_client: Optional[httpx.AsyncClient] = None,
-        timeout: float = 40.0
-    ):
+    def __init__(self, http_client: httpx.AsyncClient | None = None, timeout: float = 40.0):
         """
         Initialize A2A client.
 
         Args:
-            http_client: HTTP client to use.
+            http_client: HTTP client to use. Must have follow_redirects=False
+                for SSRF safety. If None, a safe client is created automatically.
             timeout: Default request timeout.
         """
+        if http_client is not None:
+            # Warn if injected client might follow redirects (SSRF risk)
+            if getattr(http_client, "follow_redirects", None) is not False:
+                logger.warning(
+                    "a2a_client_unsafe_http_client",
+                    message="Injected http_client may follow redirects; "
+                    "use follow_redirects=False for SSRF safety",
+                )
         self._http_client = http_client
         self._owns_client = http_client is None
         self._timeout = timeout
@@ -41,14 +49,11 @@ class A2AClient:
     async def _ensure_client(self) -> httpx.AsyncClient:
         """Ensure HTTP client is available."""
         if self._http_client is None:
-            self._http_client = httpx.AsyncClient(timeout=self._timeout)
+            self._http_client = httpx.AsyncClient(timeout=self._timeout, follow_redirects=False)
         return self._http_client
 
     async def send_message(
-        self,
-        agent: DiscoveredAgent,
-        message: str,
-        timeout: Optional[int] = None
+        self, agent: DiscoveredAgent, message: str, timeout: int | None = None
     ) -> A2AResponse:
         """
         Send a message to an external agent.
@@ -61,6 +66,13 @@ class A2AClient:
         Returns:
             A2A response.
         """
+        if _is_internal_url(agent.endpoint):
+            logger.warning("ssrf_blocked_a2a_endpoint", endpoint=agent.endpoint)
+            return A2AResponse(
+                id=str(uuid.uuid4()),
+                error={"code": -32001, "message": "Blocked request to internal endpoint"},
+            )
+
         client = await self._ensure_client()
 
         request_id = str(uuid.uuid4())
@@ -69,54 +81,55 @@ class A2AClient:
             id=request_id,
             params=A2AParams(
                 message=A2AMessage.from_text("user", message),
-                configuration=A2AConfiguration(
-                    timeout=timeout or int(self._timeout),
-                    stream=False
-                )
-            )
+                configuration=A2AConfiguration(timeout=timeout or int(self._timeout), stream=False),
+            ),
         )
 
-        logger.debug(
-            "sending_a2a_message",
-            agent=agent.card.name,
-            endpoint=agent.endpoint
-        )
+        logger.debug("sending_a2a_message", agent=agent.card.name, endpoint=agent.endpoint)
 
         try:
-            response = await client.post(
-                agent.endpoint,
-                json=request.model_dump(by_alias=True),
-                headers={"Content-Type": "application/json"}
-            )
-            response.raise_for_status()
 
-            a2a_response = A2AResponse.model_validate(response.json())
+            async def _do_post() -> httpx.Response:
+                resp = await client.post(
+                    agent.endpoint,
+                    json=request.model_dump(by_alias=True),
+                    headers={"Content-Type": "application/json"},
+                )
+                resp.raise_for_status()
+                return resp
+
+            response = await retry_with_backoff(
+                _do_post,
+                max_retries=2,
+                base_delay=0.5,
+                retryable_exceptions=(
+                    httpx.TransportError,
+                    httpx.HTTPStatusError,
+                ),
+            )
+
+            a2a_response = cast(A2AResponse, A2AResponse.model_validate(response.json()))
 
             logger.debug(
                 "received_a2a_response",
                 agent=agent.card.name,
-                status=a2a_response.result.task.status if a2a_response.result else "error"
+                status=a2a_response.result.task.status if a2a_response.result else "error",
             )
 
             return a2a_response
 
         except httpx.TimeoutException:
             return A2AResponse(
-                id=request_id,
-                error={"code": -32000, "message": f"Timeout after {self._timeout}s"}
+                id=request_id, error={"code": -32000, "message": f"Timeout after {self._timeout}s"}
             )
         except Exception as e:
             logger.error("a2a_request_failed", agent=agent.card.name, error=str(e))
             return A2AResponse(
-                id=request_id,
-                error={"code": -32000, "message": str(e)}
+                id=request_id, error={"code": -32000, "message": "A2A request failed"}
             )
 
     async def stream_message(
-        self,
-        agent: DiscoveredAgent,
-        message: str,
-        timeout: Optional[int] = None
+        self, agent: DiscoveredAgent, message: str, timeout: int | None = None
     ) -> AsyncIterator[str]:
         """
         Stream a message to an external agent.
@@ -129,6 +142,10 @@ class A2AClient:
         Yields:
             Response chunks.
         """
+        if _is_internal_url(agent.endpoint):
+            logger.warning("ssrf_blocked_a2a_endpoint", endpoint=agent.endpoint)
+            return
+
         if not agent.card.capabilities.streaming:
             # Fall back to non-streaming
             response = await self.send_message(agent, message, timeout)
@@ -146,11 +163,8 @@ class A2AClient:
             id=request_id,
             params=A2AParams(
                 message=A2AMessage.from_text("user", message),
-                configuration=A2AConfiguration(
-                    timeout=timeout or int(self._timeout),
-                    stream=True
-                )
-            )
+                configuration=A2AConfiguration(timeout=timeout or int(self._timeout), stream=True),
+            ),
         )
 
         try:
@@ -158,10 +172,7 @@ class A2AClient:
                 "POST",
                 agent.endpoint,
                 json=request.model_dump(by_alias=True),
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "text/event-stream"
-                }
+                headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
             ) as response:
                 response.raise_for_status()
 
@@ -171,6 +182,7 @@ class A2AClient:
                         # Try to parse as JSON
                         try:
                             import json
+
                             chunk = json.loads(data)
                             # Extract content based on format
                             if "content" in chunk:
@@ -184,11 +196,7 @@ class A2AClient:
         except Exception as e:
             logger.error("a2a_stream_failed", agent=agent.card.name, error=str(e))
 
-    async def get_task_status(
-        self,
-        agent: DiscoveredAgent,
-        task_id: str
-    ) -> Optional[TaskStatus]:
+    async def get_task_status(self, agent: DiscoveredAgent, task_id: str) -> TaskStatus | None:
         """
         Get the status of a task.
 
@@ -199,20 +207,22 @@ class A2AClient:
         Returns:
             Task status if found.
         """
+        if _is_internal_url(agent.endpoint):
+            logger.warning("ssrf_blocked_a2a_endpoint", endpoint=agent.endpoint)
+            return None
+
         client = await self._ensure_client()
 
         request = {
             "jsonrpc": "2.0",
             "method": "tasks/get",
             "id": str(uuid.uuid4()),
-            "params": {"taskId": task_id}
+            "params": {"taskId": task_id},
         }
 
         try:
             response = await client.post(
-                agent.endpoint,
-                json=request,
-                headers={"Content-Type": "application/json"}
+                agent.endpoint, json=request, headers={"Content-Type": "application/json"}
             )
             response.raise_for_status()
 

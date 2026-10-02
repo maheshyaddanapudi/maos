@@ -1,16 +1,17 @@
 """Unit tests for conversations API endpoints."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi.testclient import TestClient
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from maos.api.routes.conversations import router, get_app_context
-
+from maos.api.routes.conversations import get_app_context, router
 
 # =============================================================================
 # Test Fixtures
 # =============================================================================
+
 
 def create_mock_message(msg_type: str, content: str, name: str = None):
     """Create a mock message with proper attributes."""
@@ -34,7 +35,7 @@ def mock_graph():
             create_mock_message("human", "Hello"),
             create_mock_message("ai", "Hi there! How can I help?"),
         ],
-        "metadata": {}
+        "metadata": {},
     }
     mock_state.next = None
     mock_state.tasks = []
@@ -104,6 +105,7 @@ def test_app():
 @pytest.fixture
 def client(test_app, mock_graph):
     """Create a test client with mocked graph."""
+
     def override_context():
         return {"graph": mock_graph}
 
@@ -115,6 +117,8 @@ def client(test_app, mock_graph):
 # GET /conversations Tests
 # =============================================================================
 
+
+@pytest.mark.unit
 class TestListConversations:
     """Tests for GET /conversations endpoint."""
 
@@ -190,6 +194,7 @@ class TestListConversations:
 
     def test_list_conversations_no_graph(self, test_app):
         """Test error when graph not initialized."""
+
         def override_context():
             return {"graph": None}
 
@@ -204,6 +209,8 @@ class TestListConversations:
 # GET /conversations/{thread_id} Tests
 # =============================================================================
 
+
+@pytest.mark.unit
 class TestGetConversation:
     """Tests for GET /conversations/{thread_id} endpoint."""
 
@@ -222,6 +229,7 @@ class TestGetConversation:
 
     def test_get_conversation_not_found(self, test_app, mock_empty_graph):
         """Test getting a non-existent conversation."""
+
         def override_context():
             return {"graph": mock_empty_graph}
 
@@ -233,6 +241,7 @@ class TestGetConversation:
 
     def test_get_conversation_interrupted(self, test_app, mock_graph_with_interrupt):
         """Test getting an interrupted conversation."""
+
         def override_context():
             return {"graph": mock_graph_with_interrupt}
 
@@ -248,6 +257,7 @@ class TestGetConversation:
 
     def test_get_conversation_no_graph(self, test_app):
         """Test error when graph not initialized."""
+
         def override_context():
             return {"graph": None}
 
@@ -262,6 +272,8 @@ class TestGetConversation:
 # GET /conversations/{thread_id}/messages Tests
 # =============================================================================
 
+
+@pytest.mark.unit
 class TestGetConversationMessages:
     """Tests for GET /conversations/{thread_id}/messages endpoint."""
 
@@ -277,6 +289,7 @@ class TestGetConversationMessages:
 
     def test_get_messages_not_found(self, test_app, mock_empty_graph):
         """Test getting messages for non-existent conversation."""
+
         def override_context():
             return {"graph": mock_empty_graph}
 
@@ -291,6 +304,8 @@ class TestGetConversationMessages:
 # DELETE /conversations/{thread_id} Tests
 # =============================================================================
 
+
+@pytest.mark.unit
 class TestDeleteConversation:
     """Tests for DELETE /conversations/{thread_id} endpoint."""
 
@@ -329,6 +344,7 @@ class TestDeleteConversation:
 
     def test_delete_conversation_no_graph(self, test_app):
         """Test error when graph not initialized."""
+
         def override_context():
             return {"graph": None}
 
@@ -343,6 +359,8 @@ class TestDeleteConversation:
 # GET /conversations/{thread_id}/status Tests
 # =============================================================================
 
+
+@pytest.mark.unit
 class TestGetConversationStatus:
     """Tests for GET /conversations/{thread_id}/status endpoint."""
 
@@ -360,6 +378,7 @@ class TestGetConversationStatus:
 
     def test_get_status_interrupted(self, test_app, mock_graph_with_interrupt):
         """Test getting status of interrupted conversation."""
+
         def override_context():
             return {"graph": mock_graph_with_interrupt}
 
@@ -375,6 +394,7 @@ class TestGetConversationStatus:
 
     def test_get_status_not_found(self, test_app, mock_empty_graph):
         """Test getting status of non-existent conversation."""
+
         def override_context():
             return {"graph": mock_empty_graph}
 
@@ -393,6 +413,8 @@ class TestGetConversationStatus:
 # Checkpointer Configuration Tests
 # =============================================================================
 
+
+@pytest.mark.unit
 class TestCheckpointerConfig:
     """Tests for checkpointer configuration."""
 
@@ -409,10 +431,7 @@ class TestCheckpointerConfig:
         """Test SQLite checkpointer configuration."""
         from maos.config.models import CheckpointerConfig
 
-        config = CheckpointerConfig(
-            type="sqlite",
-            sqlite_path="/tmp/test_checkpoints.db"
-        )
+        config = CheckpointerConfig(type="sqlite", sqlite_path="/tmp/test_checkpoints.db")
         assert config.type == "sqlite"
         assert config.sqlite_path == "/tmp/test_checkpoints.db"
 
@@ -420,20 +439,15 @@ class TestCheckpointerConfig:
         """Test PostgreSQL checkpointer configuration."""
         from maos.config.models import CheckpointerConfig
 
-        config = CheckpointerConfig(
-            type="postgres",
-            postgres_uri="postgresql://localhost/maos"
-        )
+        config = CheckpointerConfig(type="postgres", postgres_uri="postgresql://localhost/maos")
         assert config.type == "postgres"
-        assert config.postgres_uri == "postgresql://localhost/maos"
+        assert config.postgres_uri.get_secret_value() == "postgresql://localhost/maos"
 
     def test_checkpointer_config_in_graph_config(self):
         """Test checkpointer configuration in GraphConfig."""
-        from maos.config.models import GraphConfig, CheckpointerConfig
+        from maos.config.models import CheckpointerConfig, GraphConfig
 
-        graph_config = GraphConfig(
-            checkpointer=CheckpointerConfig(type="sqlite")
-        )
+        graph_config = GraphConfig(checkpointer=CheckpointerConfig(type="sqlite"))
         assert graph_config.checkpointer.type == "sqlite"
 
 
@@ -441,14 +455,17 @@ class TestCheckpointerConfig:
 # CheckpointerFactory Tests
 # =============================================================================
 
+
+@pytest.mark.unit
 class TestCheckpointerFactory:
     """Tests for CheckpointerFactory."""
 
     def test_create_memory_saver(self):
         """Test creating memory checkpointer."""
-        from maos.graph.checkpointer import CheckpointerFactory
-        from maos.config.models import CheckpointerConfig
         from langgraph.checkpoint.memory import MemorySaver
+
+        from maos.config.models import CheckpointerConfig
+        from maos.graph.checkpointer import CheckpointerFactory
 
         config = CheckpointerConfig(type="memory")
         checkpointer = CheckpointerFactory.create(config)
@@ -458,7 +475,6 @@ class TestCheckpointerFactory:
     def test_create_unknown_type_raises(self):
         """Test that unknown type raises error."""
         from maos.graph.checkpointer import CheckpointerFactory
-        from maos.config.models import CheckpointerConfig
 
         # Use MagicMock to bypass validation
         config = MagicMock()
@@ -472,27 +488,28 @@ class TestCheckpointerFactory:
 # ConversationStore Tests
 # =============================================================================
 
+
+@pytest.mark.unit
 class TestConversationStore:
     """Tests for ConversationStore."""
 
     @pytest.fixture
     def memory_store(self):
         """Create a ConversationStore with memory checkpointer."""
-        from maos.graph.checkpointer import ConversationStore
-        from maos.config.models import CheckpointerConfig
         from langgraph.checkpoint.memory import MemorySaver
+
+        from maos.config.models import CheckpointerConfig
+        from maos.graph.checkpointer import ConversationStore
 
         config = CheckpointerConfig(type="memory")
         checkpointer = MemorySaver()
         return ConversationStore(checkpointer, config)
 
-    @pytest.mark.asyncio
     async def test_list_threads_empty(self, memory_store):
         """Test listing threads when empty."""
         threads = await memory_store.list_threads()
         assert threads == []
 
-    @pytest.mark.asyncio
     async def test_delete_thread_not_found(self, memory_store):
         """Test deleting non-existent thread."""
         result = await memory_store.delete_thread("non-existent")
@@ -513,10 +530,12 @@ class TestConversationStore:
 
     def test_serialize_messages_dict(self, memory_store):
         """Test serializing dict messages."""
-        messages = memory_store._serialize_messages([
-            {"role": "user", "content": "Hi"},
-            {"role": "assistant", "content": "Hello"},
-        ])
+        messages = memory_store._serialize_messages(
+            [
+                {"role": "user", "content": "Hi"},
+                {"role": "assistant", "content": "Hello"},
+            ]
+        )
 
         assert len(messages) == 2
         assert messages[0]["role"] == "user"

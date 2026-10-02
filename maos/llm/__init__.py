@@ -1,8 +1,8 @@
 """LLM integration module for MAOS."""
 
-from maos.llm.base import LLMAdapter, Message, ToolDefinition, LLMResponse
-from maos.llm.registry import LLMRegistry
+from maos.llm.base import LLMAdapter, LLMResponse, Message, ToolDefinition
 from maos.llm.factory import LLMFactory
+from maos.llm.registry import LLMRegistry
 
 __all__ = [
     "LLMAdapter",

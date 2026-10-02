@@ -1,11 +1,11 @@
 """A2A host server for multiple agents."""
 
-from typing import Any, Callable, Dict
-
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from collections.abc import Callable
+from typing import Any, cast
 
 import structlog
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 logger = structlog.get_logger()
 
@@ -13,7 +13,7 @@ logger = structlog.get_logger()
 class A2AHostServer:
     """Multi-agent A2A host server."""
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 9001):
+    def __init__(self, host: str = "127.0.0.1", port: int = 9001):
         """
         Initialize the host server.
 
@@ -23,7 +23,7 @@ class A2AHostServer:
         """
         self._host = host
         self._port = port
-        self._agents: Dict[str, "A2AAgentHandler"] = {}
+        self._agents: dict[str, A2AAgentHandler] = {}
         self._app = FastAPI(title="A2A Host")
 
         self._setup_routes()
@@ -32,28 +32,22 @@ class A2AHostServer:
         """Set up API routes."""
 
         @self._app.get("/a2a/index.json")
-        async def get_host_index():
+        async def get_host_index() -> dict[str, Any]:
             """Return host index listing all agents."""
             return self.get_index()
 
         @self._app.get("/a2a/{name}/.well-known/agent.json")
-        async def get_agent_card(name: str):
+        async def get_agent_card(name: str) -> dict[str, Any] | JSONResponse:
             """Return agent card for specific agent."""
             if name not in self._agents:
-                return JSONResponse(
-                    status_code=404,
-                    content={"error": f"Agent '{name}' not found"}
-                )
+                return JSONResponse(status_code=404, content={"error": "Agent not found"})
             return self._agents[name].get_card()
 
         @self._app.post("/a2a/{name}")
-        async def handle_agent_request(name: str, request: Request):
+        async def handle_agent_request(name: str, request: Request) -> dict | JSONResponse:
             """Handle A2A request for specific agent."""
             if name not in self._agents:
-                return JSONResponse(
-                    status_code=404,
-                    content={"error": f"Agent '{name}' not found"}
-                )
+                return JSONResponse(status_code=404, content={"error": "Agent not found"})
 
             body = await request.json()
             response = await self._agents[name].handle_request(body)
@@ -70,34 +64,27 @@ class A2AHostServer:
         self._agents[name] = handler
         logger.info("registered_a2a_agent", name=name)
 
-    def get_index(self) -> Dict[str, Any]:
+    def get_index(self) -> dict[str, Any]:
         """Get host index listing all agents."""
         return {
             "version": "1.0",
-            "host": {
-                "name": "MAOS A2A Host",
-                "base_url": f"http://{self._host}:{self._port}"
-            },
+            "host": {"name": "MAOS A2A Host", "base_url": f"http://{self._host}:{self._port}"},
             "agents": [
                 {
                     "name": name,
                     "path": f"/a2a/{name}",
                     "agent_card_path": f"/a2a/{name}/.well-known/agent.json",
-                    "description": handler.get_description()
+                    "description": handler.get_description(),
                 }
                 for name, handler in self._agents.items()
-            ]
+            ],
         }
 
     async def start(self) -> None:
         """Start the server."""
         import uvicorn
-        config = uvicorn.Config(
-            self._app,
-            host=self._host,
-            port=self._port,
-            log_level="info"
-        )
+
+        config = uvicorn.Config(self._app, host=self._host, port=self._port, log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
 
@@ -110,12 +97,7 @@ class A2AHostServer:
 class A2AAgentHandler:
     """Handler for a single A2A agent."""
 
-    def __init__(
-        self,
-        name: str,
-        description: str,
-        handler_fn: Callable[[Dict], Any]
-    ):
+    def __init__(self, name: str, description: str, handler_fn: Callable[[dict], Any]):
         """
         Initialize the agent handler.
 
@@ -127,37 +109,28 @@ class A2AAgentHandler:
         self._name = name
         self._description = description
         self._handler_fn = handler_fn
-        self._skills = []
+        self._skills: list[dict[str, str]] = []
 
     def add_skill(self, skill_id: str, name: str, description: str = "") -> None:
         """Add a skill to the agent."""
-        self._skills.append({
-            "id": skill_id,
-            "name": name,
-            "description": description
-        })
+        self._skills.append({"id": skill_id, "name": name, "description": description})
 
-    def get_card(self) -> Dict[str, Any]:
+    def get_card(self) -> dict[str, Any]:
         """Get the agent card."""
         return {
             "protocolVersion": "1.0",
             "name": self._name,
             "description": self._description,
             "version": "1.0.0",
-            "supportedInterfaces": [
-                {"url": f"/a2a/{self._name}", "protocolBinding": "JSONRPC"}
-            ],
-            "capabilities": {
-                "streaming": False,
-                "pushNotifications": False
-            },
-            "skills": self._skills
+            "supportedInterfaces": [{"url": f"/a2a/{self._name}", "protocolBinding": "JSONRPC"}],
+            "capabilities": {"streaming": False, "pushNotifications": False},
+            "skills": self._skills,
         }
 
     def get_description(self) -> str:
         """Get agent description."""
         return self._description
 
-    async def handle_request(self, request: Dict) -> Dict:
+    async def handle_request(self, request: dict) -> dict:
         """Handle an A2A request."""
-        return await self._handler_fn(request)
+        return cast(dict[Any, Any], await self._handler_fn(request))

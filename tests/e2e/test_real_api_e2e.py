@@ -6,14 +6,15 @@ Run with: ANTHROPIC_API_KEY=sk-... pytest tests/e2e/test_real_api_e2e.py -v -s
 """
 
 import os
-import pytest
 from pathlib import Path
 
+import pytest
+
 # Skip all tests if API key not available
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("ANTHROPIC_API_KEY"),
-    reason="ANTHROPIC_API_KEY not set"
-)
+pytestmark = [
+    pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="ANTHROPIC_API_KEY not set"),
+    pytest.mark.e2e,
+]
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 TEST_CONFIG = FIXTURES_DIR / "test_config.yaml"
@@ -40,7 +41,6 @@ async def maos_system():
 class TestSupervisorWorkerOrchestration:
     """Tests for supervisor routing to native workers."""
 
-    @pytest.mark.asyncio
     async def test_supervisor_routes_to_math_expert(self, maos_system):
         """Test that supervisor correctly routes math problems to math agent."""
         graph, context = maos_system
@@ -52,9 +52,7 @@ class TestSupervisorWorkerOrchestration:
         messages = [{"role": "user", "content": "What is 15 * 7 + 23?"}]
 
         initial_state = create_initial_state(
-            messages=messages,
-            roster=roster,
-            thread_id="test-math-1"
+            messages=messages, roster=roster, thread_id="test-math-1"
         )
 
         config = {"configurable": {"thread_id": "test-math-1"}}
@@ -78,7 +76,6 @@ class TestSupervisorWorkerOrchestration:
         print(f"\nFull response: {response_content}")
         assert "128" in response_content, f"Expected '128' in response, got: {response_content}"
 
-    @pytest.mark.asyncio
     async def test_supervisor_routes_to_researcher(self, maos_system):
         """Test that supervisor correctly routes research tasks."""
         graph, context = maos_system
@@ -90,9 +87,7 @@ class TestSupervisorWorkerOrchestration:
         messages = [{"role": "user", "content": "Read the file test.txt and tell me what's in it."}]
 
         initial_state = create_initial_state(
-            messages=messages,
-            roster=roster,
-            thread_id="test-research-1"
+            messages=messages, roster=roster, thread_id="test-research-1"
         )
 
         config = {"configurable": {"thread_id": "test-research-1"}}
@@ -112,7 +107,6 @@ class TestSupervisorWorkerOrchestration:
         # Should have read the test file content
         assert "test file" in response_content.lower() or len(response_content) > 50
 
-    @pytest.mark.asyncio
     async def test_multi_step_orchestration(self, maos_system):
         """Test supervisor handling a task that requires worker execution."""
         graph, context = maos_system
@@ -123,9 +117,7 @@ class TestSupervisorWorkerOrchestration:
         messages = [{"role": "user", "content": "Calculate the factorial of 5 (5!)."}]
 
         initial_state = create_initial_state(
-            messages=messages,
-            roster=roster,
-            thread_id="test-factorial"
+            messages=messages, roster=roster, thread_id="test-factorial"
         )
 
         config = {"configurable": {"thread_id": "test-factorial"}}
@@ -141,18 +133,20 @@ class TestSupervisorWorkerOrchestration:
 
         print(f"\nResponse: {response_content}")
         # 5! = 120
-        assert "120" in response_content, f"Expected '120' in response for 5!, got: {response_content}"
+        assert "120" in response_content, (
+            f"Expected '120' in response for 5!, got: {response_content}"
+        )
 
 
 class TestHumanInTheLoop:
     """Tests for human-in-the-loop via send_message."""
 
-    @pytest.mark.asyncio
     async def test_send_message_interrupts_for_input(self, maos_system):
         """Test that supervisor can use send_message to request user input."""
         graph, context = maos_system
-        from maos.graph.state import create_initial_state
         from langgraph.types import Command
+
+        from maos.graph.state import create_initial_state
 
         roster = context["agent_registry"].get_roster()
 
@@ -160,9 +154,7 @@ class TestHumanInTheLoop:
         messages = [{"role": "user", "content": "Help me with the thing."}]
 
         initial_state = create_initial_state(
-            messages=messages,
-            roster=roster,
-            thread_id="test-hitl-1"
+            messages=messages, roster=roster, thread_id="test-hitl-1"
         )
 
         config = {"configurable": {"thread_id": "test-hitl-1"}}
@@ -180,14 +172,14 @@ class TestHumanInTheLoop:
 
             if state.tasks:
                 for task in state.tasks:
-                    if hasattr(task, 'interrupts') and task.interrupts:
+                    if hasattr(task, "interrupts") and task.interrupts:
                         interrupt_value = task.interrupts[0].value
                         print(f"Interrupt value: {interrupt_value}")
 
                         print("\nResuming with clarified input...")
                         resumed_result = await graph.ainvoke(
                             Command(resume="I need help with a math problem: what is 10 + 5?"),
-                            config=config
+                            config=config,
                         )
 
                         for msg in resumed_result.get("messages", []):
@@ -200,7 +192,6 @@ class TestHumanInTheLoop:
                 if hasattr(msg, "content") and msg.content:
                     print(f"Response: {str(msg.content)[:200]}...")
 
-    @pytest.mark.asyncio
     async def test_explicit_clarification_request(self, maos_system):
         """Test supervisor asking for explicit clarification."""
         graph, context = maos_system
@@ -211,9 +202,7 @@ class TestHumanInTheLoop:
         messages = [{"role": "user", "content": "Solve x."}]
 
         initial_state = create_initial_state(
-            messages=messages,
-            roster=roster,
-            thread_id="test-clarify-1"
+            messages=messages, roster=roster, thread_id="test-clarify-1"
         )
 
         config = {"configurable": {"thread_id": "test-clarify-1"}}
@@ -223,7 +212,7 @@ class TestHumanInTheLoop:
 
         state = await graph.aget_state(config)
 
-        print(f"\nState after invocation:")
+        print("\nState after invocation:")
         print(f"  - next: {state.next}")
         print(f"  - has tasks: {bool(state.tasks)}")
 
@@ -235,7 +224,6 @@ class TestHumanInTheLoop:
 class TestAgentRoster:
     """Tests for agent roster and configuration."""
 
-    @pytest.mark.asyncio
     async def test_roster_contains_all_workers(self, maos_system):
         """Test that roster contains all configured workers."""
         graph, context = maos_system
@@ -245,15 +233,18 @@ class TestAgentRoster:
 
         # Unified config has 6 native workers + 1 external agent
         expected_agents = [
-            "analyst", "researcher", "assistant",
-            "timekeeper", "mathematician", "librarian",
-            "title_generator"  # External A2A agent
+            "analyst",
+            "researcher",
+            "assistant",
+            "timekeeper",
+            "mathematician",
+            "librarian",
+            "title_generator",  # External A2A agent
         ]
         for agent in expected_agents:
             assert agent in roster, f"{agent} should be in roster"
         assert len(roster) == 7, f"Expected 7 agents, got {len(roster)}: {roster}"
 
-    @pytest.mark.asyncio
     async def test_llm_registry_initialized(self, maos_system):
         """Test that LLM registry is properly initialized."""
         graph, context = maos_system

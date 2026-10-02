@@ -5,7 +5,7 @@ the conversation content. It's typically used by UI clients to
 generate thread titles after the first exchange.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
 
@@ -52,9 +52,9 @@ Examples:
         name: str = "title_generator",
         description: str = "Generates concise titles for conversations",
         host: str = "127.0.0.1",
-        port: Optional[int] = None,
-        llm_adapter: Optional[Any] = None,
-        system_prompt: Optional[str] = None,
+        port: int | None = None,
+        llm_adapter: Any | None = None,
+        system_prompt: str | None = None,
     ):
         """
         Initialize the title generator agent.
@@ -71,7 +71,7 @@ Examples:
             {
                 "id": "generate_title",
                 "name": "Generate Title",
-                "description": "Generate a concise title for a conversation"
+                "description": "Generate a concise title for a conversation",
             }
         ]
         super().__init__(name, description, host, port, skills)
@@ -82,7 +82,7 @@ Examples:
         """Set the LLM adapter after initialization."""
         self._llm = llm_adapter
 
-    async def _process(self, task: str, context: Optional[Dict[str, Any]] = None) -> str:
+    async def _process(self, task: str, context: dict[str, Any] | None = None) -> str:
         """
         Generate a title for the given conversation content.
 
@@ -105,11 +105,7 @@ Examples:
             title = await self._generate_with_llm(task)
             return title.strip()
         except Exception as e:
-            logger.warning(
-                "title_generation_failed",
-                error=str(e),
-                falling_back=True
-            )
+            logger.warning("title_generation_failed", error=str(e), falling_back=True)
             return self._generate_fallback_title(task)
 
     async def _generate_with_llm(self, content: str) -> str:
@@ -118,11 +114,14 @@ Examples:
 
         messages = [
             Message(role="system", content=self._system_prompt),
-            Message(role="user", content=f"Generate a title for this conversation:\n\n{content[:2000]}")
+            Message(
+                role="user", content=f"Generate a title for this conversation:\n\n{content[:2000]}"
+            ),
         ]
 
+        assert self._llm is not None
         response = await self._llm.invoke(messages)
-        return response.content.strip().strip('"').strip("'")
+        return str(response.content.strip().strip('"').strip("'"))
 
     def _generate_fallback_title(self, content: str) -> str:
         """Generate a simple fallback title without LLM."""
@@ -142,10 +141,7 @@ class TitleGeneratorFactory:
     """Factory for creating TitleGeneratorAgent instances."""
 
     @staticmethod
-    def create(
-        config: Dict[str, Any],
-        llm_adapter: Optional[Any] = None
-    ) -> TitleGeneratorAgent:
+    def create(config: dict[str, Any], llm_adapter: Any | None = None) -> TitleGeneratorAgent:
         """
         Create a TitleGeneratorAgent from configuration.
 

@@ -1,7 +1,6 @@
 """Integration tests for graph module."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from maos.config.models import (
     AgentConfig,
@@ -11,9 +10,8 @@ from maos.config.models import (
     LLMConfig,
     LLMProvider,
 )
-from maos.llm.registry import LLMRegistry
 from maos.graph.state import create_initial_state
-
+from maos.llm.registry import LLMRegistry
 from tests.mocks.llm import MockLLMAdapter, MockSupervisorLLM
 
 
@@ -21,26 +19,19 @@ from tests.mocks.llm import MockLLMAdapter, MockSupervisorLLM
 def test_config():
     """Create a test configuration."""
     return Config(
-        llms={
-            "default": LLMConfig(
-                provider=LLMProvider.OPENAI,
-                model="gpt-4o-mini"
-            )
-        },
+        llms={"default": LLMConfig(provider=LLMProvider.OPENAI, model="gpt-4o-mini")},
         agents={
             "supervisor": AgentConfig(
-                kind=AgentKind.SUPERVISOR,
-                llm="default",
-                system_prompt="Route tasks to workers."
+                kind=AgentKind.SUPERVISOR, llm="default", system_prompt="Route tasks to workers."
             ),
             "worker1": AgentConfig(
                 kind=AgentKind.NATIVE_WORKER,
                 llm="default",
                 system_prompt="You are a helpful worker.",
-                description="General worker"
-            )
+                description="General worker",
+            ),
         },
-        graph=GraphConfig(max_iterations=5)
+        graph=GraphConfig(max_iterations=5),
     )
 
 
@@ -73,10 +64,7 @@ class TestGraphStateIntegration:
 
     def test_initial_state_defaults(self):
         """Test initial state has correct defaults."""
-        state = create_initial_state(
-            messages=[{"role": "user", "content": "Test"}],
-            roster=[]
-        )
+        state = create_initial_state(messages=[{"role": "user", "content": "Test"}], roster=[])
 
         assert state["done"] is False
         assert state["iteration"] == 0
@@ -88,7 +76,6 @@ class TestGraphStateIntegration:
 class TestMockLLMIntegration:
     """Integration tests for mock LLM adapters."""
 
-    @pytest.mark.asyncio
     async def test_supervisor_routing_sequence(self):
         """Test supervisor LLM returns correct routing sequence."""
         from maos.llm.base import Message
@@ -104,7 +91,6 @@ class TestMockLLMIntegration:
         response3 = await llm.invoke([Message.user("Test")])
         assert "END" in response3.content
 
-    @pytest.mark.asyncio
     async def test_mock_adapter_responses(self):
         """Test mock adapter returns configured responses."""
         from maos.llm.base import Message

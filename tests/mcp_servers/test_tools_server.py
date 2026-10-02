@@ -13,14 +13,12 @@ Run with: python -m tests.mcp_servers.test_tools_server
 
 import asyncio
 import json
-import sys
 from datetime import datetime
 from typing import Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
-
+from mcp.types import TextContent, Tool
 
 # Create server instance
 server = Server("test-tools-server")
@@ -39,11 +37,11 @@ async def list_tools() -> list[Tool]:
                     "timezone": {
                         "type": "string",
                         "description": "Timezone (default: UTC)",
-                        "default": "UTC"
+                        "default": "UTC",
                     }
                 },
-                "required": []
-            }
+                "required": [],
+            },
         ),
         Tool(
             name="calculate",
@@ -53,11 +51,11 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "expression": {
                         "type": "string",
-                        "description": "Math expression to evaluate (e.g., '2 + 3 * 4')"
+                        "description": "Math expression to evaluate (e.g., '2 + 3 * 4')",
                     }
                 },
-                "required": ["expression"]
-            }
+                "required": ["expression"],
+            },
         ),
         Tool(
             name="read_test_file",
@@ -65,13 +63,10 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Name of the test file to read"
-                    }
+                    "filename": {"type": "string", "description": "Name of the test file to read"}
                 },
-                "required": ["filename"]
-            }
+                "required": ["filename"],
+            },
         ),
         Tool(
             name="echo",
@@ -79,13 +74,10 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "message": {
-                        "type": "string",
-                        "description": "Message to echo back"
-                    }
+                    "message": {"type": "string", "description": "Message to echo back"}
                 },
-                "required": ["message"]
-            }
+                "required": ["message"],
+            },
         ),
     ]
 
@@ -101,7 +93,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             "datetime": now.isoformat(),
             "date": now.strftime("%Y-%m-%d"),
             "time": now.strftime("%H:%M:%S"),
-            "timezone": tz
+            "timezone": tz,
         }
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
@@ -114,7 +106,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 # Check for ** (power)
                 clean = expression.replace("**", "")
                 if not all(c in allowed or c.isspace() for c in clean):
-                    return [TextContent(type="text", text=f"Error: Invalid characters in expression")]
+                    return [
+                        TextContent(type="text", text="Error: Invalid characters in expression")
+                    ]
 
             result = eval(expression)  # Safe for math only
             return [TextContent(type="text", text=f"Result: {expression} = {result}")]
@@ -127,7 +121,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         mock_files = {
             "test.txt": "This is a test file content.",
             "data.json": '{"key": "value", "numbers": [1, 2, 3]}',
-            "readme.md": "# Test README\n\nThis is a test readme file."
+            "readme.md": "# Test README\n\nThis is a test readme file.",
         }
         content = mock_files.get(filename, f"File '{filename}' not found")
         return [TextContent(type="text", text=content)]
@@ -143,11 +137,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 async def main():
     """Run the MCP server."""
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options()
-        )
+        await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
 if __name__ == "__main__":

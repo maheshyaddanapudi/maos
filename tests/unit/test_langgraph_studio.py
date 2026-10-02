@@ -1,24 +1,26 @@
 """Unit tests for LangGraph Studio-compatible API endpoints."""
 
+from datetime import datetime
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 
 from maos.api.models import (
     Assistant,
     AssistantConfig,
     AssistantCreate,
     AssistantSearch,
-    Thread,
-    ThreadCreate,
-    ThreadState,
     Run,
     RunCreate,
     RunStatus,
+    Thread,
+    ThreadCreate,
+    ThreadState,
 )
 from maos.api.routes import langgraph_studio
 
 
+@pytest.mark.unit
 class TestAssistantModels:
     """Tests for assistant models."""
 
@@ -36,7 +38,7 @@ class TestAssistantModels:
             name="My Assistant",
             description="Test assistant",
             config=AssistantConfig(configurable={"model": "gpt-4"}),
-            metadata={"version": "1.0"}
+            metadata={"version": "1.0"},
         )
         assert request.graph_id == "custom"
         assert request.name == "My Assistant"
@@ -50,6 +52,7 @@ class TestAssistantModels:
         assert request.graph_id is None
 
 
+@pytest.mark.unit
 class TestThreadModels:
     """Tests for thread models."""
 
@@ -61,10 +64,7 @@ class TestThreadModels:
 
     def test_thread_create_with_id(self):
         """Test ThreadCreate with explicit thread_id."""
-        request = ThreadCreate(
-            thread_id="my-thread-123",
-            metadata={"user": "test"}
-        )
+        request = ThreadCreate(thread_id="my-thread-123", metadata={"user": "test"})
         assert request.thread_id == "my-thread-123"
         assert request.metadata["user"] == "test"
 
@@ -76,6 +76,7 @@ class TestThreadModels:
         assert state.tasks == []
 
 
+@pytest.mark.unit
 class TestRunModels:
     """Tests for run models."""
 
@@ -93,7 +94,7 @@ class TestRunModels:
             input={"messages": [{"role": "user", "content": "Hello"}]},
             stream_mode=["values", "messages"],
             interrupt_before=["supervisor"],
-            multitask_strategy="reject"
+            multitask_strategy="reject",
         )
         assert request.stream_mode == ["values", "messages"]
         assert request.interrupt_before == ["supervisor"]
@@ -107,6 +108,7 @@ class TestRunModels:
         assert RunStatus.INTERRUPTED.value == "interrupted"
 
 
+@pytest.mark.unit
 class TestHelperFunctions:
     """Tests for helper functions."""
 
@@ -114,13 +116,13 @@ class TestHelperFunctions:
         """Test _now_iso returns valid ISO format."""
         result = langgraph_studio._now_iso()
         # Should be parseable as datetime
-        datetime.fromisoformat(result.replace('Z', '+00:00'))
+        datetime.fromisoformat(result.replace("Z", "+00:00"))
 
     def test_format_studio_event_chain_stream(self):
         """Test _format_studio_event for chain stream events."""
         event = {
             "event": "on_chain_stream",
-            "data": {"chunk": {"messages": [{"content": "Hello"}]}}
+            "data": {"chunk": {"messages": [{"content": "Hello"}]}},
         }
         result = langgraph_studio._format_studio_event(event)
         assert result is not None
@@ -128,10 +130,7 @@ class TestHelperFunctions:
 
     def test_format_studio_event_tool_start(self):
         """Test _format_studio_event for tool start events."""
-        event = {
-            "event": "on_tool_start",
-            "data": {"name": "calculator"}
-        }
+        event = {"event": "on_tool_start", "data": {"name": "calculator"}}
         result = langgraph_studio._format_studio_event(event)
         assert result is not None
         assert "event: events" in result
@@ -139,10 +138,7 @@ class TestHelperFunctions:
 
     def test_format_studio_event_tool_end(self):
         """Test _format_studio_event for tool end events."""
-        event = {
-            "event": "on_tool_end",
-            "data": {"name": "calculator"}
-        }
+        event = {"event": "on_tool_end", "data": {"name": "calculator"}}
         result = langgraph_studio._format_studio_event(event)
         assert result is not None
         assert "tool_end" in result
@@ -154,6 +150,7 @@ class TestHelperFunctions:
         assert result is None
 
 
+@pytest.mark.unit
 class TestAssistantStore:
     """Tests for in-memory assistant store operations."""
 
@@ -182,6 +179,7 @@ class TestAssistantStore:
         assert len([a for a in langgraph_studio._assistants if a == "default"]) == 1
 
 
+@pytest.mark.unit
 class TestThreadStore:
     """Tests for in-memory thread store operations."""
 
@@ -194,18 +192,14 @@ class TestThreadStore:
     def test_thread_creation(self):
         """Test thread is stored correctly."""
         now = langgraph_studio._now_iso()
-        thread = Thread(
-            thread_id="test-thread",
-            created_at=now,
-            updated_at=now,
-            status="idle"
-        )
+        thread = Thread(thread_id="test-thread", created_at=now, updated_at=now, status="idle")
         langgraph_studio._threads["test-thread"] = thread
 
         assert "test-thread" in langgraph_studio._threads
         assert langgraph_studio._threads["test-thread"].status == "idle"
 
 
+@pytest.mark.unit
 class TestRunStore:
     """Tests for in-memory run store operations."""
 
@@ -224,7 +218,7 @@ class TestRunStore:
             assistant_id="default",
             status=RunStatus.RUNNING,
             created_at=now,
-            updated_at=now
+            updated_at=now,
         )
         langgraph_studio._runs["run-123"] = run
 
@@ -240,7 +234,7 @@ class TestRunStore:
             assistant_id="default",
             status=RunStatus.RUNNING,
             created_at=now,
-            updated_at=now
+            updated_at=now,
         )
         langgraph_studio._runs["run-123"] = run
 
@@ -251,6 +245,7 @@ class TestRunStore:
         assert langgraph_studio._runs["run-123"].status == RunStatus.SUCCESS
 
 
+@pytest.mark.unit
 class TestAssistantModel:
     """Tests for Assistant model."""
 
@@ -265,7 +260,7 @@ class TestAssistantModel:
             config=AssistantConfig(configurable={"temperature": 0.7}),
             metadata={"created_by": "test"},
             created_at=now,
-            updated_at=now
+            updated_at=now,
         )
 
         assert assistant.assistant_id == "test-id"
@@ -274,6 +269,7 @@ class TestAssistantModel:
         assert assistant.metadata["created_by"] == "test"
 
 
+@pytest.mark.unit
 class TestThreadModel:
     """Tests for Thread model."""
 
@@ -283,14 +279,12 @@ class TestThreadModel:
 
         for status in ["idle", "busy", "interrupted", "error"]:
             thread = Thread(
-                thread_id=f"thread-{status}",
-                created_at=now,
-                updated_at=now,
-                status=status
+                thread_id=f"thread-{status}", created_at=now, updated_at=now, status=status
             )
             assert thread.status == status
 
 
+@pytest.mark.unit
 class TestRunModel:
     """Tests for Run model."""
 
@@ -305,6 +299,6 @@ class TestRunModel:
                 assistant_id="default",
                 status=status,
                 created_at=now,
-                updated_at=now
+                updated_at=now,
             )
             assert run.status == status

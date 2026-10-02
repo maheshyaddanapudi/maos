@@ -39,6 +39,7 @@ class LLMFactory:
             ValueError: If provider is not supported.
         """
         from maos.llm.adapters.langchain_adapter import create_adapter_from_config
+
         return create_adapter_from_config(config)
 
     def create_chat_model(self, config: LLMConfig) -> BaseChatModel:
@@ -56,6 +57,7 @@ class LLMFactory:
             A LangChain BaseChatModel instance.
         """
         from maos.llm.adapters.langchain_adapter import create_langchain_model
+
         return create_langchain_model(config)
 
     @classmethod

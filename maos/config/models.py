@@ -1,13 +1,14 @@
 """Pydantic models for MAOS configuration."""
 
-from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from enum import StrEnum
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
-class LLMProvider(str, Enum):
+class LLMProvider(StrEnum):
     """Supported LLM providers."""
+
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
@@ -18,46 +19,56 @@ class LLMProvider(str, Enum):
 
 class LLMConfig(BaseModel):
     """Configuration for an LLM provider."""
+
     provider: LLMProvider
     model: str
     temperature: float = Field(default=0.7, ge=0, le=2)
-    max_tokens: Optional[int] = Field(default=None, ge=1)
-    api_key_env: Optional[str] = None
-    base_url: Optional[str] = None
+    max_tokens: int | None = Field(default=None, ge=1)
+    api_key_env: str | None = None
+    base_url: str | None = None
     timeout_seconds: int = Field(default=60, ge=1)
+    fallback_models: list[str] = Field(
+        default_factory=list,
+        description="Fallback model names to try if primary fails",
+    )
 
 
 class MCPServerConfig(BaseModel):
     """Configuration for an MCP server connection."""
+
     transport: Literal["stdio", "http", "sse"] = "stdio"
-    command: Optional[List[str]] = None
-    url: Optional[str] = None
-    env: Optional[Dict[str, str]] = None
+    command: list[str] | None = None
+    url: str | None = None
+    env: dict[str, str] | None = None
     timeout_seconds: int = Field(default=30, ge=1)
 
 
 class ToolConfig(BaseModel):
     """Configuration mapping a tool ID to an MCP server tool."""
+
     server: str = Field(..., description="Reference to MCP server name")
     tool_name: str = Field(..., description="Tool name as exposed by MCP server")
-    description_override: Optional[str] = None
-    timeout_seconds: Optional[int] = Field(default=None, ge=1)
+    description_override: str | None = None
+    timeout_seconds: int | None = Field(default=None, ge=1)
 
 
 class SkillConfig(BaseModel):
     """A skill groups related tools."""
-    tools: List[str] = Field(..., min_length=1)
+
+    tools: list[str] = Field(..., min_length=1)
     description: str = ""
 
 
 class SkillsetConfig(BaseModel):
     """A skillset groups related skills for an agent."""
-    skills: List[str] = Field(..., min_length=1)
-    description: Optional[str] = None
+
+    skills: list[str] = Field(..., min_length=1)
+    description: str | None = None
 
 
-class AgentKind(str, Enum):
+class AgentKind(StrEnum):
     """Types of agents."""
+
     SUPERVISOR = "supervisor"
     NATIVE_WORKER = "native_worker"
     EXTERNAL = "external"
@@ -65,6 +76,7 @@ class AgentKind(str, Enum):
 
 class RetryPolicy(BaseModel):
     """Retry configuration for agent/tool failures."""
+
     max_retries: int = Field(default=1, ge=0, le=5)
     retry_delay_seconds: float = Field(default=1.0, ge=0)
     exponential_backoff: bool = False
@@ -72,35 +84,41 @@ class RetryPolicy(BaseModel):
 
 class ExternalAgentServerConfig(BaseModel):
     """Configuration for hosting an external agent as A2A server."""
+
     host: str = "127.0.0.1"
-    port: Optional[int] = Field(default=None, ge=1, le=65535)  # None = random port
+    port: int | None = Field(default=None, ge=1, le=65535)  # None = random port
     implementation: str = "default"  # Built-in implementations or custom module path
 
 
 class AgentConfig(BaseModel):
     """Configuration for an agent (supervisor, native worker, or external)."""
+
     kind: AgentKind
-    framework: Literal["langchain", "openai", "google", "smolagents", "llamaindex", "agno", "tinyagent"] = "langchain"
+    framework: Literal[
+        "langchain", "openai", "google", "smolagents", "llamaindex", "agno", "tinyagent"
+    ] = "langchain"
     llm: str = "default"
-    skillset: Optional[str] = None
-    tools: Optional[List[str]] = None
+    skillset: str | None = None
+    tools: list[str] | None = None
     system_prompt: str
-    description: Optional[str] = None
+    description: str | None = None
     timeout_seconds: int = Field(default=60, ge=1)
-    retry_policy: Optional[RetryPolicy] = None
+    retry_policy: RetryPolicy | None = None
     # External agent specific config (only used when kind=external)
-    server: Optional[ExternalAgentServerConfig] = None
+    server: ExternalAgentServerConfig | None = None
 
 
 class NativeWorkersConfig(BaseModel):
     """Configuration options for native workers."""
-    ignore_workers: List[str] = Field(default_factory=list)
+
+    ignore_workers: list[str] = Field(default_factory=list)
 
 
 class A2ADiscoveryConfig(BaseModel):
     """Configuration for discovering external A2A agents."""
-    seeds: List[str] = Field(default_factory=list)
-    well_known_paths: List[str] = Field(default=["/.well-known/agent.json"])
+
+    seeds: list[str] = Field(default_factory=list)
+    well_known_paths: list[str] = Field(default=["/.well-known/agent.json"])
     host_index_path: str = "/a2a/index.json"
     timeout_seconds: int = Field(default=10, ge=1)
     parallel_discovery: bool = True
@@ -108,31 +126,35 @@ class A2ADiscoveryConfig(BaseModel):
 
 class ToolsAssignmentConfig(BaseModel):
     """Configuration for assigning external agents as tools."""
+
     strategy: Literal["skill_overlap", "explicit", "supervisor"] = "skill_overlap"
     fallback: Literal["supervisor", "skip"] = "supervisor"
-    explicit: Dict[str, str] = Field(default_factory=dict)
+    explicit: dict[str, str] = Field(default_factory=dict)
 
 
 class A2AImportPolicy(BaseModel):
     """Policy for importing discovered external agents."""
+
     enabled: bool = True
     mode: Literal["langgraph_nodes", "tools_only"] = "langgraph_nodes"
-    tools_assignment: Optional[ToolsAssignmentConfig] = None
+    tools_assignment: ToolsAssignmentConfig | None = None
     max_agents: int = Field(default=25, ge=1, le=100)
-    include_tags: List[str] = Field(default_factory=list)
-    exclude_tags: List[str] = Field(default_factory=list)
-    include_names: List[str] = Field(default_factory=list)
-    exclude_names: List[str] = Field(default_factory=list)
+    include_tags: list[str] = Field(default_factory=list)
+    exclude_tags: list[str] = Field(default_factory=list)
+    include_names: list[str] = Field(default_factory=list)
+    exclude_names: list[str] = Field(default_factory=list)
 
 
 class A2AConfig(BaseModel):
     """A2A external agent discovery and import configuration."""
+
     discovery: A2ADiscoveryConfig = Field(default_factory=A2ADiscoveryConfig)
     import_policy: A2AImportPolicy = Field(default_factory=A2AImportPolicy)
 
 
 class TimeoutsConfig(BaseModel):
     """Timeout configuration for graph execution."""
+
     external_agent_call_seconds: int = Field(default=40, ge=1)
     tool_call_seconds: int = Field(default=30, ge=1)
     total_execution_seconds: int = Field(default=300, ge=1)
@@ -146,55 +168,120 @@ class CheckpointerConfig(BaseModel):
     - sqlite: SQLite database (persistent, single-server)
     - postgres: PostgreSQL (persistent, multi-server, production)
     """
+
     type: Literal["memory", "sqlite", "postgres"] = "memory"
     # SQLite settings
-    sqlite_path: str = Field(default="maos_checkpoints.db", description="Path to SQLite database file")
+    sqlite_path: str = Field(
+        default="maos_checkpoints.db", description="Path to SQLite database file"
+    )
     # PostgreSQL settings
-    postgres_uri: Optional[str] = Field(default=None, description="PostgreSQL connection URI")
-    postgres_uri_env: Optional[str] = Field(default=None, description="Env var containing PostgreSQL URI")
+    postgres_uri: SecretStr | None = Field(default=None, description="PostgreSQL connection URI")
+    postgres_uri_env: str | None = Field(
+        default=None, description="Env var containing PostgreSQL URI"
+    )
     # Common settings
     table_name: str = Field(default="checkpoints", description="Table name for checkpoints")
 
 
 class GraphConfig(BaseModel):
     """LangGraph execution configuration."""
+
     max_iterations: int = Field(default=12, ge=1, le=100)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
-    retry_policy: Optional[RetryPolicy] = None
+    retry_policy: RetryPolicy | None = None
     checkpointer: CheckpointerConfig = Field(default_factory=CheckpointerConfig)
 
 
 class APIConfig(BaseModel):
     """API server configuration."""
+
     host: str = "127.0.0.1"
     port: int = Field(default=7777, ge=1, le=65535)
-    cors_origins: List[str] = Field(default=["*"])
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://localhost:7777"],
+        description="CORS allowed origins. Override with ['*'] for development only.",
+    )
     openai_compatible: bool = True
 
 
 class UIConfig(BaseModel):
     """UI configuration."""
+
     mode: Literal["none", "chainlit", "openwebui_compatible"] = "none"
+
+
+class APISecurityConfig(BaseModel):
+    """Security configuration for the API layer."""
+
+    auth_enabled: bool = True
+    api_key_env: str | None = Field(
+        default=None,
+        description=("Environment variable containing comma-separated API keys"),
+    )
+    rate_limit_enabled: bool = False
+    rate_limit_rpm: int = Field(
+        default=60,
+        ge=1,
+        description="Requests per minute per client",
+    )
+    rate_limit_burst: int = Field(
+        default=10,
+        ge=1,
+        description="Maximum burst size for rate limiting",
+    )
+
+
+class ObservabilityConfig(BaseModel):
+    """Observability configuration for tracing and metrics."""
+
+    tracing_enabled: bool = Field(
+        default=False,
+        description="Enable distributed tracing",
+    )
+    metrics_enabled: bool = Field(
+        default=False,
+        description="Enable metrics collection",
+    )
+    log_prompts: bool = Field(
+        default=False,
+        description="Log LLM prompts (may contain sensitive data)",
+    )
+    log_tool_calls: bool = Field(
+        default=True,
+        description="Log tool call invocations and results",
+    )
 
 
 class ServingConfig(BaseModel):
     """API and UI serving configuration."""
+
     api: APIConfig = Field(default_factory=APIConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
+    security: APISecurityConfig = Field(default_factory=APISecurityConfig)
 
 
 class Config(BaseModel):
     """Root configuration model for MAOS."""
-    llms: Dict[str, LLMConfig]
-    mcp_servers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
-    tools: Dict[str, ToolConfig] = Field(default_factory=dict)
-    skills: Dict[str, SkillConfig] = Field(default_factory=dict)
-    skillsets: Dict[str, SkillsetConfig] = Field(default_factory=dict)
-    agents: Dict[str, AgentConfig]
-    native_workers: NativeWorkersConfig = Field(default_factory=NativeWorkersConfig)
+
+    llms: dict[str, LLMConfig]
+    mcp_servers: dict[str, MCPServerConfig] = Field(
+        default_factory=dict,
+    )
+    tools: dict[str, ToolConfig] = Field(default_factory=dict)
+    skills: dict[str, SkillConfig] = Field(default_factory=dict)
+    skillsets: dict[str, SkillsetConfig] = Field(
+        default_factory=dict,
+    )
+    agents: dict[str, AgentConfig]
+    native_workers: NativeWorkersConfig = Field(
+        default_factory=NativeWorkersConfig,
+    )
     a2a: A2AConfig = Field(default_factory=A2AConfig)
     graph: GraphConfig = Field(default_factory=GraphConfig)
     serving: ServingConfig = Field(default_factory=ServingConfig)
+    observability: ObservabilityConfig = Field(
+        default_factory=ObservabilityConfig,
+    )
 
     def get_supervisor(self) -> tuple[str, AgentConfig]:
         """Get the supervisor agent configuration."""
@@ -203,7 +290,7 @@ class Config(BaseModel):
                 return name, agent
         raise ValueError("No supervisor agent defined in configuration")
 
-    def get_workers(self) -> Dict[str, AgentConfig]:
+    def get_workers(self) -> dict[str, AgentConfig]:
         """Get all native worker agents."""
         ignore = set(self.native_workers.ignore_workers)
         return {
@@ -212,7 +299,7 @@ class Config(BaseModel):
             if agent.kind == AgentKind.NATIVE_WORKER and name not in ignore
         }
 
-    def validate_references(self) -> List[str]:
+    def validate_references(self) -> list[str]:
         """Validate all cross-references in configuration."""
         errors = []
 
@@ -231,13 +318,33 @@ class Config(BaseModel):
         for skillset_name, skillset in self.skillsets.items():
             for skill_name in skillset.skills:
                 if skill_name not in self.skills:
-                    errors.append(f"Skillset '{skillset_name}' references unknown skill '{skill_name}'")
+                    errors.append(
+                        f"Skillset '{skillset_name}' references unknown skill '{skill_name}'"
+                    )
 
         # Check agent -> LLM and skillset references
         for agent_name, agent in self.agents.items():
             if agent.llm not in self.llms:
                 errors.append(f"Agent '{agent_name}' references unknown LLM '{agent.llm}'")
             if agent.skillset and agent.skillset not in self.skillsets:
-                errors.append(f"Agent '{agent_name}' references unknown skillset '{agent.skillset}'")
+                errors.append(
+                    f"Agent '{agent_name}' references unknown skillset '{agent.skillset}'"
+                )
+
+        # Check any-agent availability for non-langchain frameworks
+        non_langchain = [
+            (name, agent)
+            for name, agent in self.agents.items()
+            if agent.kind == AgentKind.NATIVE_WORKER and agent.framework != "langchain"
+        ]
+        if non_langchain:
+            try:
+                import any_agent  # noqa: F401
+            except ImportError:
+                agent_name, agent = non_langchain[0]
+                errors.append(
+                    f"Agent '{agent_name}' uses framework '{agent.framework}' which "
+                    f"requires any-agent. Install: pip install 'any-agent[{agent.framework}]'"
+                )
 
         return errors

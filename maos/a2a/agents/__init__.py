@@ -4,8 +4,8 @@ This module provides built-in agent implementations that can be run
 as external A2A services within the MAOS system.
 """
 
-from maos.a2a.agents.title_generator import TitleGeneratorAgent
 from maos.a2a.agents.base import ExternalAgentServer
+from maos.a2a.agents.title_generator import TitleGeneratorAgent
 
 __all__ = [
     "TitleGeneratorAgent",
@@ -18,6 +18,6 @@ BUILTIN_AGENTS = {
 }
 
 
-def get_builtin_agent(name: str):
+def get_builtin_agent(name: str) -> type[ExternalAgentServer] | None:
     """Get a built-in agent class by name."""
     return BUILTIN_AGENTS.get(name)

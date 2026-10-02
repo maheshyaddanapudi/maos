@@ -1,11 +1,12 @@
 """Main entry point for MAOS."""
 
-import asyncio
 import argparse
+import asyncio
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import structlog
 from langgraph.checkpoint.memory import MemorySaver
@@ -21,7 +22,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
-        structlog.dev.ConsoleRenderer()
+        structlog.dev.ConsoleRenderer(),
     ],
     wrapper_class=structlog.stdlib.BoundLogger,
     context_class=dict,
@@ -32,12 +33,49 @@ structlog.configure(
 logger = structlog.get_logger()
 
 
+async def _wait_for_server(
+    server: Any,
+    timeout: float = 30.0,
+    poll_interval: float = 0.2,
+) -> bool:
+    """Wait for an external agent server to become ready.
+
+    Args:
+        server: The server instance (must have an ``endpoint``).
+        timeout: Maximum seconds to wait.
+        poll_interval: Seconds between readiness checks.
+
+    Returns:
+        True if the server is ready within the timeout.
+    """
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        # Check if the server has a port assigned and is serving
+        if getattr(server, "port", None) is not None:
+            try:
+                import httpx
+
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        f"{server.endpoint}/.well-known/agent.json",
+                        timeout=2.0,
+                    )
+                    if resp.status_code < 500:
+                        return True
+            except Exception:
+                pass
+        await asyncio.sleep(poll_interval)
+    return False
+
+
 async def _start_external_agent(
     name: str,
-    agent_config,
-    llm_registry,
-    llm_factory,
-):
+    agent_config: Any,
+    llm_registry: Any,
+    llm_factory: Any,
+) -> Any:
     """
     Start an external A2A agent server.
 
@@ -51,7 +89,6 @@ async def _start_external_agent(
         The running ExternalAgentServer instance, or None if failed.
     """
     from maos.a2a.agents import TitleGeneratorAgent
-    from maos.a2a.agents.base import ExternalAgentServer
 
     server_config = agent_config.server
     if server_config is None:
@@ -80,28 +117,23 @@ async def _start_external_agent(
     else:
         # Could support custom implementations via module path
         logger.warning(
-            "unknown_external_agent_implementation",
-            name=name,
-            implementation=implementation
+            "unknown_external_agent_implementation", name=name, implementation=implementation
         )
         return None
 
     # Start the server in background
     try:
         await server.start_background()
-        logger.info(
-            "external_agent_started",
-            name=name,
-            endpoint=server.endpoint,
-            port=server.port
-        )
+        logger.info("external_agent_started", name=name, endpoint=server.endpoint, port=server.port)
         return server
     except Exception as e:
         logger.error("failed_to_start_external_agent", name=name, error=str(e))
         return None
 
 
-async def initialize_system(config_path: str, checkpointer=None):
+async def initialize_system(
+    config_path: str, checkpointer: Any = None
+) -> tuple[Any, dict[str, Any]]:
     """
     Initialize all MAOS components from configuration.
 
@@ -112,24 +144,35 @@ async def initialize_system(config_path: str, checkpointer=None):
     Returns:
         Tuple of (compiled_graph, app_context_dict)
     """
-    from maos.config.loader import ConfigLoader
-    from maos.llm.registry import LLMRegistry
-    from maos.llm.factory import LLMFactory
-    from maos.mcp.registry import MCPRegistry
-    from maos.tools.registry import ToolRegistry
-    from maos.skills.registry import SkillRegistry, SkillsetRegistry
-    from maos.agents.registry import AgentRegistry
-    from maos.agents.factory import AgentFactory
-    from maos.a2a.discovery import A2ADiscovery
     from maos.a2a.client import A2AClient
+    from maos.a2a.discovery import A2ADiscovery
+    from maos.agents.factory import AgentFactory
+    from maos.agents.registry import AgentRegistry
+    from maos.config.loader import ConfigLoader
     from maos.graph.factory import GraphFactory
+    from maos.llm.factory import LLMFactory
+    from maos.llm.registry import LLMRegistry
+    from maos.mcp.registry import MCPRegistry
+    from maos.skills.registry import SkillRegistry, SkillsetRegistry
+    from maos.tools.registry import ToolRegistry
 
     logger.info("initializing_maos", config_path=config_path)
 
     # Load configuration
     loader = ConfigLoader()
     config = loader.load(config_path)
-    logger.info("config_loaded", agents=len(config.agents), llms=len(config.llms))
+    logger.info(
+        "config_loaded",
+        agents=len(config.agents),
+        llms=len(config.llms),
+    )
+
+    # Validate cross-references
+    errors = config.validate_references()
+    if errors:
+        for err in errors:
+            logger.error("config_validation_error", error=err)
+        raise ValueError(f"Config validation failed: {len(errors)} errors")
 
     # Initialize LLM registry
     llm_registry = LLMRegistry()
@@ -166,32 +209,23 @@ async def initialize_system(config_path: str, checkpointer=None):
     # Initialize A2A components
     a2a_client = A2AClient()
     if config.a2a.discovery.seeds:
-        discovery = A2ADiscovery(
-            seed_urls=config.a2a.discovery.seeds,
-            import_policy=config.a2a.import_policy,
-            timeout=config.a2a.discovery.timeout_seconds
+        discovery = A2ADiscovery()
+        discovered_agents = await discovery.discover(config.a2a)
+        logger.info(
+            "a2a_discovery_complete",
+            count=len(discovered_agents),
         )
-        discovered_agents = await discovery.discover()
-        logger.info("a2a_discovery_complete", count=len(discovered_agents))
     else:
         discovered_agents = []
 
-    # Initialize Agent factory and registry
-    agent_factory = AgentFactory(
-        llm_registry=llm_registry,
-        skillset_registry=skillset_registry,
-        skill_registry=skill_registry,
-        tool_registry=tool_registry,
-    )
-    agent_registry = AgentRegistry(factory=agent_factory)
-
-    # Build all agents from config (handles supervisor/worker ordering)
-    agent_registry.build(config)
-    logger.info("agent_registry_initialized", count=len(config.agents))
-
-    # Start managed external agents (defined in config with kind: external)
+    # Start managed external agents BEFORE building agent registry
+    # so they are verified running when the graph is compiled.
     external_servers = []
-    for name, agent_config in agent_registry.get_external_configs().items():
+    external_configs = {name: ac for name, ac in config.agents.items() if ac.kind == "external"}
+
+    startup_timeout = float(config.graph.timeouts.external_agent_call_seconds)
+
+    for name, agent_config in external_configs.items():
         server = await _start_external_agent(
             name=name,
             agent_config=agent_config,
@@ -199,17 +233,60 @@ async def initialize_system(config_path: str, checkpointer=None):
             llm_factory=llm_factory,
         )
         if server:
-            external_servers.append(server)
-            agent_registry.register_managed_external(name, agent_config, server)
+            # Wait for the server to be ready with timeout
+            ready = await _wait_for_server(server, timeout=startup_timeout)
+            if ready:
+                external_servers.append(server)
+                logger.info(
+                    "external_agent_ready",
+                    name=name,
+                    endpoint=server.endpoint,
+                )
+            else:
+                logger.error(
+                    "external_agent_not_ready",
+                    name=name,
+                    timeout=startup_timeout,
+                )
+                try:
+                    await server.stop()
+                except Exception:
+                    pass
 
     if external_servers:
-        logger.info("started_external_agents", count=len(external_servers))
+        logger.info(
+            "started_external_agents",
+            count=len(external_servers),
+        )
+
+    # Initialize Agent factory and registry
+    agent_factory = AgentFactory(
+        llm_registry=llm_registry,
+        skillset_registry=skillset_registry,
+        skill_registry=skill_registry,
+        tool_registry=tool_registry,
+        graph_config=config.graph,
+    )
+    agent_registry = AgentRegistry(factory=agent_factory)
+
+    # Build all agents from config (handles supervisor/worker ordering)
+    agent_registry.build(config)
+    logger.info(
+        "agent_registry_initialized",
+        count=len(config.agents),
+    )
+
+    # Register successfully started external agents
+    for server in external_servers:
+        name = server.name
+        if name in external_configs:
+            agent_registry.register_managed_external(name, external_configs[name], server)
 
     # Register discovered A2A agents (from external discovery)
     for discovered in discovered_agents:
         agent_registry.add_external(discovered)
 
-    # Build the graph using LangGraph native factory
+    # Build the graph AFTER all external agents are verified
     graph_factory = GraphFactory(
         config=config,
         agent_registry=agent_registry,
@@ -222,7 +299,7 @@ async def initialize_system(config_path: str, checkpointer=None):
     if checkpointer is None:
         checkpointer = MemorySaver()
 
-    compiled_graph = graph_factory.compile(checkpointer=checkpointer)
+    compiled_graph = await graph_factory.compile(checkpointer=checkpointer)
     logger.info("graph_compiled")
 
     # Return context
@@ -234,6 +311,7 @@ async def initialize_system(config_path: str, checkpointer=None):
         "skill_registry": skill_registry,
         "skillset_registry": skillset_registry,
         "agent_registry": agent_registry,
+        "graph_factory": graph_factory,
         "graph": compiled_graph,
         "checkpointer": checkpointer,
         "external_servers": external_servers,
@@ -242,7 +320,7 @@ async def initialize_system(config_path: str, checkpointer=None):
     return compiled_graph, context
 
 
-async def shutdown_system(context: dict):
+async def shutdown_system(context: dict) -> None:
     """
     Gracefully shutdown all MAOS components.
 
@@ -259,6 +337,11 @@ async def shutdown_system(context: dict):
         except Exception as e:
             logger.warning("failed_to_stop_external_agent", error=str(e))
 
+    # Clean up any-agent instances (MCP connections, etc.)
+    graph_factory = context.get("graph_factory")
+    if graph_factory and hasattr(graph_factory, "cleanup_any_agents"):
+        await graph_factory.cleanup_any_agents()
+
     # Disconnect MCP servers
     mcp_registry = context.get("mcp_registry")
     if mcp_registry:
@@ -267,7 +350,7 @@ async def shutdown_system(context: dict):
     logger.info("maos_shutdown_complete")
 
 
-async def run_server(config_path: str, host: str, port: int):
+async def run_server(config_path: str, host: str, port: int) -> None:
     """
     Run the MAOS API server.
 
@@ -284,7 +367,7 @@ async def run_server(config_path: str, host: str, port: int):
 
     # Create FastAPI lifespan
     @asynccontextmanager
-    async def lifespan(app):
+    async def lifespan(app: Any) -> AsyncIterator[None]:
         logger.info("maos_server_starting", host=host, port=port)
         yield
         await shutdown_system(context)
@@ -301,17 +384,18 @@ async def run_server(config_path: str, host: str, port: int):
         skillset_registry=context["skillset_registry"],
         agent_registry=context["agent_registry"],
         graph=graph,
-        checkpointer=checkpointer
+        checkpointer=checkpointer,
     )
 
     # Run server
     import uvicorn
+
     config = uvicorn.Config(app=app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
     await server.serve()
 
 
-async def run_interactive(config_path: str):
+async def run_interactive(config_path: str) -> None:
     """
     Run MAOS in interactive CLI mode.
 
@@ -324,11 +408,11 @@ async def run_interactive(config_path: str):
     graph, context = await initialize_system(config_path)
     agent_registry = context["agent_registry"]
 
-    print("\n=== MAOS Interactive Mode ===")
-    print("Type your message and press Enter. Type 'quit' to exit.\n")
+    sys.stdout.write("\n=== MAOS Interactive Mode ===\n")
+    sys.stdout.write("Type your message and press Enter. Type 'quit' to exit.\n\n")
 
     roster = agent_registry.get_roster()
-    print(f"Available agents: {', '.join(roster)}\n")
+    sys.stdout.write(f"Available agents: {', '.join(roster)}\n\n")
 
     thread_id = "interactive-session"
     messages = []
@@ -336,7 +420,7 @@ async def run_interactive(config_path: str):
     try:
         while True:
             try:
-                user_input = input("You: ").strip()
+                user_input = (await asyncio.to_thread(input, "You: ")).strip()
             except EOFError:
                 break
 
@@ -351,9 +435,7 @@ async def run_interactive(config_path: str):
 
             # Create state
             initial_state = create_initial_state(
-                messages=messages,
-                roster=roster,
-                thread_id=thread_id
+                messages=messages, roster=roster, thread_id=thread_id
             )
 
             config = {"configurable": {"thread_id": thread_id}}
@@ -365,19 +447,20 @@ async def run_interactive(config_path: str):
                 # Get last assistant message
                 for msg in reversed(result.get("messages", [])):
                     if isinstance(msg, dict) and msg.get("role") == "assistant":
-                        print(f"\nAssistant: {msg.get('content', '')}\n")
+                        sys.stdout.write(f"\nAssistant: {msg.get('content', '')}\n\n")
                         messages.append(msg)
                         break
 
             except Exception as e:
-                print(f"\nError: {str(e)}\n")
+                logger.error("interactive_error", error=str(e))
+                sys.stdout.write("\nError: An error occurred while processing your request.\n\n")
 
     finally:
         await shutdown_system(context)
-        print("\nGoodbye!")
+        sys.stdout.write("\nGoodbye!\n")
 
 
-async def validate_config(config_path: str):
+async def validate_config(config_path: str) -> bool:
     """
     Validate a configuration file.
 
@@ -390,20 +473,22 @@ async def validate_config(config_path: str):
 
     try:
         config = loader.load(config_path)
-        print(f"✓ Configuration is valid")
-        print(f"  - LLMs: {len(config.llms)}")
-        print(f"  - MCP Servers: {len(config.mcp_servers)}")
-        print(f"  - Tools: {len(config.tools)}")
-        print(f"  - Skills: {len(config.skills)}")
-        print(f"  - Skillsets: {len(config.skillsets)}")
-        print(f"  - Agents: {len(config.agents)}")
+        logger.info(
+            "config_valid",
+            llms=len(config.llms),
+            mcp_servers=len(config.mcp_servers),
+            tools=len(config.tools),
+            skills=len(config.skills),
+            skillsets=len(config.skillsets),
+            agents=len(config.agents),
+        )
         return True
     except Exception as e:
-        print(f"✗ Configuration is invalid: {str(e)}")
+        logger.error("config_invalid", error=str(e))
         return False
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         description="MAOS - Multi-Agent Orchestration System",
@@ -414,58 +499,33 @@ Examples:
   maos serve -c config.yaml --port 8080        # Start on port 8080
   maos interactive -c config.yaml              # Interactive CLI mode
   maos validate -c config.yaml                 # Validate configuration
-        """
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Serve command
     serve_parser = subparsers.add_parser("serve", help="Start the API server")
+    serve_parser.add_argument("-c", "--config", required=True, help="Path to configuration file")
     serve_parser.add_argument(
-        "-c", "--config",
-        required=True,
-        help="Path to configuration file"
+        "--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)"
     )
     serve_parser.add_argument(
-        "--host",
-        default="0.0.0.0",
-        help="Host to bind to (default: 0.0.0.0)"
-    )
-    serve_parser.add_argument(
-        "--port",
-        type=int,
-        default=7777,
-        help="Port to listen on (default: 7777)"
+        "--port", type=int, default=7777, help="Port to listen on (default: 7777)"
     )
 
     # Interactive command
-    interactive_parser = subparsers.add_parser(
-        "interactive",
-        help="Run in interactive CLI mode"
-    )
+    interactive_parser = subparsers.add_parser("interactive", help="Run in interactive CLI mode")
     interactive_parser.add_argument(
-        "-c", "--config",
-        required=True,
-        help="Path to configuration file"
+        "-c", "--config", required=True, help="Path to configuration file"
     )
 
     # Validate command
-    validate_parser = subparsers.add_parser(
-        "validate",
-        help="Validate configuration file"
-    )
-    validate_parser.add_argument(
-        "-c", "--config",
-        required=True,
-        help="Path to configuration file"
-    )
+    validate_parser = subparsers.add_parser("validate", help="Validate configuration file")
+    validate_parser.add_argument("-c", "--config", required=True, help="Path to configuration file")
 
     # Version
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="MAOS 0.1.0"
-    )
+    parser.add_argument("--version", action="version", version="MAOS 0.1.0")
 
     args = parser.parse_args()
 
@@ -474,8 +534,8 @@ Examples:
         sys.exit(1)
 
     # Validate config path exists
-    if hasattr(args, 'config') and not Path(args.config).exists():
-        print(f"Error: Configuration file not found: {args.config}")
+    if hasattr(args, "config") and not Path(args.config).exists():
+        logger.error("config_file_not_found", path=args.config)
         sys.exit(1)
 
     # Run the appropriate command

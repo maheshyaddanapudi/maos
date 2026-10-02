@@ -4,12 +4,10 @@ This module uses the official Anthropic MCP SDK for server connections,
 providing proper protocol handling and session management.
 """
 
-import asyncio
 from contextlib import AsyncExitStack
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
-
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -22,22 +20,17 @@ logger = structlog.get_logger()
 class MCPServerConnection:
     """A managed connection to an MCP server."""
 
-    def __init__(
-        self,
-        name: str,
-        session: ClientSession,
-        tools: List[MCPToolDefinition]
-    ):
+    def __init__(self, name: str, session: ClientSession, tools: list[MCPToolDefinition]):
         self.name = name
         self._session = session
         self._tools = tools
 
     @property
-    def tools(self) -> List[MCPToolDefinition]:
+    def tools(self) -> list[MCPToolDefinition]:
         """Get available tools."""
         return self._tools
 
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
         Call a tool on this server.
 
@@ -53,7 +46,7 @@ class MCPServerConnection:
         # Extract content from result
         if result.content:
             for content in result.content:
-                if hasattr(content, 'text'):
+                if hasattr(content, "text"):
                     return content.text
             return result.content
 
@@ -73,11 +66,11 @@ class MCPRegistry:
             result = await registry.call_tool("server", "tool", {"arg": "value"})
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the MCP registry."""
-        self._connections: Dict[str, MCPServerConnection] = {}
-        self._exit_stack: Optional[AsyncExitStack] = None
-        self._configs: Dict[str, MCPServerConfig] = {}
+        self._connections: dict[str, MCPServerConnection] = {}
+        self._exit_stack: AsyncExitStack | None = None
+        self._configs: dict[str, MCPServerConfig] = {}
 
     async def register(self, name: str, config: MCPServerConfig) -> None:
         """
@@ -101,14 +94,11 @@ class MCPRegistry:
             try:
                 await self._connect_server(name, config)
             except Exception as e:
-                logger.warning(
-                    "failed_to_connect_mcp_server",
-                    server=name,
-                    error=str(e)
-                )
+                logger.warning("failed_to_connect_mcp_server", server=name, error=str(e))
 
     async def _connect_server(self, name: str, config: MCPServerConfig) -> None:
         """Connect to a single MCP server."""
+        assert self._exit_stack is not None
         if config.transport != "stdio":
             raise NotImplementedError(
                 f"Transport '{config.transport}' not supported. "
@@ -124,18 +114,14 @@ class MCPRegistry:
         server_params = StdioServerParameters(
             command=config.command[0],
             args=config.command[1:] if len(config.command) > 1 else [],
-            env=config.env
+            env=config.env,
         )
 
         # Enter the stdio_client context
-        read, write = await self._exit_stack.enter_async_context(
-            stdio_client(server_params)
-        )
+        read, write = await self._exit_stack.enter_async_context(stdio_client(server_params))
 
         # Create and initialize session
-        session = await self._exit_stack.enter_async_context(
-            ClientSession(read, write)
-        )
+        session = await self._exit_stack.enter_async_context(ClientSession(read, write))
         await session.initialize()
 
         # List available tools
@@ -145,7 +131,7 @@ class MCPRegistry:
                 name=t.name,
                 description=t.description or "",
                 input_schema=t.inputSchema or {},
-                server_name=name
+                server_name=name,
             )
             for t in tools_result.tools
         ]
@@ -153,29 +139,20 @@ class MCPRegistry:
         # Store connection
         self._connections[name] = MCPServerConnection(name, session, tools)
 
-        logger.info(
-            "connected_to_mcp_server",
-            server=name,
-            tools_count=len(tools)
-        )
+        logger.info("connected_to_mcp_server", server=name, tools_count=len(tools))
 
-    def get_connection(self, name: str) -> Optional[MCPServerConnection]:
+    def get_connection(self, name: str) -> MCPServerConnection | None:
         """Get a connection by server name."""
         return self._connections.get(name)
 
-    def get_all_tools(self) -> List[MCPToolDefinition]:
+    def get_all_tools(self) -> list[MCPToolDefinition]:
         """Get all tools from all connected servers."""
         tools = []
         for connection in self._connections.values():
             tools.extend(connection.tools)
         return tools
 
-    async def call_tool(
-        self,
-        server_name: str,
-        tool_name: str,
-        arguments: Dict[str, Any]
-    ) -> Any:
+    async def call_tool(self, server_name: str, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
         Call a tool on a specific server.
 
@@ -203,7 +180,7 @@ class MCPRegistry:
         self._connections.clear()
         logger.info("disconnected_all_mcp_servers")
 
-    def list(self) -> List[str]:
+    def list(self) -> list[str]:
         """List all connected server names."""
         return list(self._connections.keys())
 

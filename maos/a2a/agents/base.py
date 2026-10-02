@@ -7,7 +7,7 @@ discovered and called by the supervisor via the A2A protocol.
 import asyncio
 import socket
 from abc import abstractmethod
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request
@@ -22,7 +22,7 @@ def find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
+        return int(s.getsockname()[1])
 
 
 class ExternalAgentServer(BaseAgentExecutor):
@@ -42,8 +42,8 @@ class ExternalAgentServer(BaseAgentExecutor):
         name: str,
         description: str = "",
         host: str = "127.0.0.1",
-        port: Optional[int] = None,
-        skills: Optional[List[Dict[str, str]]] = None,
+        port: int | None = None,
+        skills: list[dict[str, str]] | None = None,
     ):
         """
         Initialize the external agent server.
@@ -59,8 +59,9 @@ class ExternalAgentServer(BaseAgentExecutor):
         self._host = host
         self._port = port or find_free_port()
         self._skills = skills or []
-        self._app: Optional[FastAPI] = None
-        self._server_task: Optional[asyncio.Task] = None
+        self._app: FastAPI | None = None
+        self._server: Any | None = None
+        self._server_task: asyncio.Task | None = None
         self._running = False
 
     @property
@@ -79,7 +80,7 @@ class ExternalAgentServer(BaseAgentExecutor):
         return f"http://{self._host}:{self._port}/.well-known/agent.json"
 
     @abstractmethod
-    async def _process(self, task: str, context: Optional[Dict[str, Any]] = None) -> str:
+    async def _process(self, task: str, context: dict[str, Any] | None = None) -> str:
         """
         Process a task and return the result.
 
@@ -101,53 +102,44 @@ class ExternalAgentServer(BaseAgentExecutor):
             return AgentOutput(content=result, success=True)
         except Exception as e:
             logger.error("agent_execution_failed", agent=self.name, error=str(e))
-            return AgentOutput(
-                content="",
-                success=False,
-                error=str(e)
-            )
+            return AgentOutput(content="", success=False, error=str(e))
 
     def _create_app(self) -> FastAPI:
         """Create the FastAPI application."""
         app = FastAPI(title=f"A2A Agent: {self.name}")
 
         @app.get("/.well-known/agent.json")
-        async def get_agent_card():
+        async def get_agent_card() -> dict[str, Any]:
             """Return the A2A agent card."""
             return self._get_agent_card()
 
         @app.post("/")
-        async def handle_request(request: Request):
+        async def handle_request(request: Request) -> dict[str, Any]:
             """Handle A2A request."""
             body = await request.json()
             return await self._handle_a2a_request(body)
 
         return app
 
-    def _get_agent_card(self) -> Dict[str, Any]:
+    def _get_agent_card(self) -> dict[str, Any]:
         """Generate the A2A agent card."""
         return {
             "protocolVersion": "1.0",
             "name": self.name,
             "description": self.description,
             "version": "1.0.0",
-            "supportedInterfaces": [
-                {
-                    "url": self.endpoint,
-                    "protocolBinding": "JSONRPC"
-                }
-            ],
+            "supportedInterfaces": [{"url": self.endpoint, "protocolBinding": "JSONRPC"}],
             "capabilities": {
                 "streaming": False,
                 "pushNotifications": False,
-                "stateTransitionHistory": False
+                "stateTransitionHistory": False,
             },
             "defaultInputModes": ["text/plain"],
             "defaultOutputModes": ["text/plain"],
-            "skills": self._skills
+            "skills": self._skills,
         }
 
-    async def _handle_a2a_request(self, request: Dict) -> Dict:
+    async def _handle_a2a_request(self, request: dict) -> dict:
         """Handle an A2A JSON-RPC request."""
         request_id = request.get("id", "unknown")
         method = request.get("method", "")
@@ -176,12 +168,10 @@ class ExternalAgentServer(BaseAgentExecutor):
                             "status": "COMPLETED",
                             "result": {
                                 "role": "agent",
-                                "parts": [
-                                    {"type": "text", "text": str(result)}
-                                ]
-                            }
+                                "parts": [{"type": "text", "text": str(result)}],
+                            },
                         }
-                    }
+                    },
                 }
 
             except Exception as e:
@@ -193,18 +183,15 @@ class ExternalAgentServer(BaseAgentExecutor):
                         "task": {
                             "id": f"task-{request_id}",
                             "status": "FAILED",
-                            "error": str(e)
+                            "error": "Internal processing error",
                         }
-                    }
+                    },
                 }
 
         return {
             "jsonrpc": "2.0",
             "id": request_id,
-            "error": {
-                "code": -32601,
-                "message": f"Method not found: {method}"
-            }
+            "error": {"code": -32601, "message": f"Method not found: {method}"},
         }
 
     async def start(self) -> None:
@@ -224,11 +211,7 @@ class ExternalAgentServer(BaseAgentExecutor):
         server = uvicorn.Server(config)
 
         self._running = True
-        logger.info(
-            "starting_external_agent",
-            name=self.name,
-            endpoint=self.endpoint
-        )
+        logger.info("starting_external_agent", name=self.name, endpoint=self.endpoint)
 
         await server.serve()
 
@@ -246,33 +229,47 @@ class ExternalAgentServer(BaseAgentExecutor):
             port=self._port,
             log_level="warning",
         )
-        server = uvicorn.Server(config)
+        self._server = uvicorn.Server(config)
 
-        self._server_task = asyncio.create_task(server.serve())
+        self._server_task = asyncio.create_task(self._server.serve())
         self._running = True
 
         # Wait briefly for server to start
         await asyncio.sleep(0.1)
 
-        logger.info(
-            "started_external_agent_background",
-            name=self.name,
-            endpoint=self.endpoint
-        )
+        logger.info("started_external_agent_background", name=self.name, endpoint=self.endpoint)
 
     async def stop(self) -> None:
-        """Stop the A2A server."""
+        """Gracefully stop the A2A server.
+
+        Signals uvicorn to exit via should_exit flag, allowing the ASGI lifespan
+        protocol to complete its shutdown handshake before the event loop closes.
+        Falls back to task cancellation if graceful shutdown times out.
+        """
         if self._server_task and not self._server_task.done():
-            self._server_task.cancel()
+            # Signal uvicorn to exit gracefully — this lets the lifespan
+            # receive queue drain properly instead of dying mid-protocol.
+            if self._server:
+                self._server.should_exit = True
+
             try:
-                await self._server_task
+                await asyncio.wait_for(self._server_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("graceful_shutdown_timeout", name=self.name)
+                self._server_task.cancel()
+                try:
+                    await self._server_task
+                except asyncio.CancelledError:
+                    pass
             except asyncio.CancelledError:
                 pass
+
+        self._server = None
         self._running = False
         logger.info("stopped_external_agent", name=self.name)
 
     @property
-    def app(self) -> Optional[FastAPI]:
+    def app(self) -> FastAPI | None:
         """Get the FastAPI app (for testing)."""
         if self._app is None:
             self._app = self._create_app()

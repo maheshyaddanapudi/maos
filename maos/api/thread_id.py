@@ -14,14 +14,18 @@ The resolver is configurable to prioritize different sources based
 on the expected UI client.
 """
 
+import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from fastapi import Request
 import structlog
+from fastapi import Request
 
 logger = structlog.get_logger()
+
+# Validation regex for thread IDs: alphanumeric, hyphens, underscores, max 128 chars
+_VALID_THREAD_ID = re.compile(r"^[a-zA-Z0-9\-_.]{1,128}$")
 
 
 @dataclass
@@ -35,24 +39,20 @@ class ThreadIdConfig:
         generate_if_missing: Whether to generate a UUID if no ID found
         prefix: Optional prefix for generated IDs
     """
-    body_fields: List[str] = field(default_factory=lambda: [
-        "thread_id",
-        "session_id",
-        "chat_id",
-        "conversation_id"
-    ])
-    header_fields: List[str] = field(default_factory=lambda: [
-        "X-OpenWebUI-Chat-Id",  # OpenWebUI with ENABLE_FORWARD_USER_INFO_HEADERS
-        "X-Thread-Id",           # Generic
-        "X-Session-Id",          # Generic
-        "X-Chat-Id",             # Generic
-        "X-Conversation-Id"      # Generic
-    ])
-    query_fields: List[str] = field(default_factory=lambda: [
-        "thread_id",
-        "session_id",
-        "chat_id"
-    ])
+
+    body_fields: list[str] = field(
+        default_factory=lambda: ["thread_id", "session_id", "chat_id", "conversation_id"]
+    )
+    header_fields: list[str] = field(
+        default_factory=lambda: [
+            "X-OpenWebUI-Chat-Id",  # OpenWebUI with ENABLE_FORWARD_USER_INFO_HEADERS
+            "X-Thread-Id",  # Generic
+            "X-Session-Id",  # Generic
+            "X-Chat-Id",  # Generic
+            "X-Conversation-Id",  # Generic
+        ]
+    )
+    query_fields: list[str] = field(default_factory=lambda: ["thread_id", "session_id", "chat_id"])
     generate_if_missing: bool = True
     prefix: str = ""
 
@@ -80,7 +80,7 @@ LANGGRAPH_CONFIG = ThreadIdConfig(
 class ThreadIdResolver:
     """Resolves thread IDs from requests using configurable sources."""
 
-    def __init__(self, config: Optional[ThreadIdConfig] = None):
+    def __init__(self, config: ThreadIdConfig | None = None):
         """Initialize resolver with configuration.
 
         Args:
@@ -90,11 +90,11 @@ class ThreadIdResolver:
 
     def resolve(
         self,
-        request: Optional[Request] = None,
-        body: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        query_params: Optional[Dict[str, str]] = None,
-        explicit_id: Optional[str] = None
+        request: Request | None = None,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        query_params: dict[str, str] | None = None,
+        explicit_id: str | None = None,
     ) -> str:
         """Resolve thread ID from available sources.
 
@@ -117,8 +117,11 @@ class ThreadIdResolver:
         """
         # 1. Check explicit ID first
         if explicit_id:
-            logger.debug("thread_id_from_explicit", thread_id=explicit_id)
-            return explicit_id
+            if _VALID_THREAD_ID.match(explicit_id):
+                logger.debug("thread_id_from_explicit", thread_id=explicit_id)
+                return explicit_id
+            logger.warning("thread_id_invalid_explicit", raw_id=explicit_id[:32])
+            return f"{self.config.prefix}{uuid.uuid4()}"
 
         # Extract headers and query from request if provided
         if request:
@@ -132,7 +135,7 @@ class ThreadIdResolver:
         # 2. Check body fields
         for field_name in self.config.body_fields:
             value = body.get(field_name)
-            if value:
+            if value and _VALID_THREAD_ID.match(str(value)):
                 logger.debug("thread_id_from_body", field=field_name, thread_id=value)
                 return str(value)
 
@@ -140,14 +143,14 @@ class ThreadIdResolver:
         headers_lower = {k.lower(): v for k, v in headers.items()}
         for header_name in self.config.header_fields:
             value = headers_lower.get(header_name.lower())
-            if value:
+            if value and _VALID_THREAD_ID.match(value):
                 logger.debug("thread_id_from_header", header=header_name, thread_id=value)
                 return str(value)
 
         # 4. Check query parameters
         for param_name in self.config.query_fields:
             value = query_params.get(param_name)
-            if value:
+            if value and _VALID_THREAD_ID.match(value):
                 logger.debug("thread_id_from_query", param=param_name, thread_id=value)
                 return str(value)
 
@@ -159,11 +162,7 @@ class ThreadIdResolver:
 
         raise ValueError("No thread ID found and generation is disabled")
 
-    def resolve_from_request(
-        self,
-        request: Request,
-        body: Optional[Dict[str, Any]] = None
-    ) -> str:
+    def resolve_from_request(self, request: Request, body: dict[str, Any] | None = None) -> str:
         """Convenience method to resolve from a FastAPI Request.
 
         Args:
@@ -183,11 +182,11 @@ langgraph_resolver = ThreadIdResolver(LANGGRAPH_CONFIG)
 
 
 def resolve_thread_id(
-    request: Optional[Request] = None,
-    body: Optional[Dict[str, Any]] = None,
-    headers: Optional[Dict[str, str]] = None,
-    explicit_id: Optional[str] = None,
-    config: Optional[ThreadIdConfig] = None
+    request: Request | None = None,
+    body: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    explicit_id: str | None = None,
+    config: ThreadIdConfig | None = None,
 ) -> str:
     """Resolve thread ID using default or custom configuration.
 
@@ -216,18 +215,10 @@ def resolve_thread_id(
         ```
     """
     resolver = ThreadIdResolver(config) if config else default_resolver
-    return resolver.resolve(
-        request=request,
-        body=body,
-        headers=headers,
-        explicit_id=explicit_id
-    )
+    return resolver.resolve(request=request, body=body, headers=headers, explicit_id=explicit_id)
 
 
-def get_thread_id_from_openwebui(
-    request: Request,
-    body: Optional[Dict[str, Any]] = None
-) -> str:
+def get_thread_id_from_openwebui(request: Request, body: dict[str, Any] | None = None) -> str:
     """Resolve thread ID optimized for OpenWebUI.
 
     Checks X-OpenWebUI-Chat-Id header first (requires

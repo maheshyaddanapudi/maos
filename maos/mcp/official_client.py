@@ -10,12 +10,11 @@ The official SDK handles:
 - Tool invocation
 """
 
-import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any
 
 import structlog
-
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import Tool as MCPTool
@@ -28,13 +27,7 @@ logger = structlog.get_logger()
 class MCPToolDefinition:
     """Definition of a tool from an MCP server."""
 
-    def __init__(
-        self,
-        name: str,
-        description: str,
-        input_schema: Dict[str, Any],
-        server_name: str
-    ):
+    def __init__(self, name: str, description: str, input_schema: dict[str, Any], server_name: str):
         self.name = name
         self.description = description
         self.input_schema = input_schema
@@ -47,7 +40,7 @@ class MCPToolDefinition:
             name=tool.name,
             description=tool.description or "",
             input_schema=tool.inputSchema or {},
-            server_name=server_name
+            server_name=server_name,
         )
 
 
@@ -63,12 +56,7 @@ class OfficialMCPConnection:
             result = await conn.invoke_tool("tool_name", {"arg": "value"})
     """
 
-    def __init__(
-        self,
-        name: str,
-        session: ClientSession,
-        tools: List[MCPToolDefinition]
-    ):
+    def __init__(self, name: str, session: ClientSession, tools: list[MCPToolDefinition]):
         """
         Initialize the connection.
 
@@ -84,9 +72,7 @@ class OfficialMCPConnection:
     @classmethod
     @asynccontextmanager
     async def create(
-        cls,
-        name: str,
-        config: MCPServerConfig
+        cls, name: str, config: MCPServerConfig
     ) -> AsyncIterator["OfficialMCPConnection"]:
         """
         Create and connect to an MCP server.
@@ -112,7 +98,7 @@ class OfficialMCPConnection:
             server_params = StdioServerParameters(
                 command=config.command[0],
                 args=config.command[1:] if len(config.command) > 1 else [],
-                env=config.env
+                env=config.env,
             )
 
             # Use the official stdio_client context manager
@@ -123,16 +109,9 @@ class OfficialMCPConnection:
 
                     # List available tools
                     tools_result = await session.list_tools()
-                    tools = [
-                        MCPToolDefinition.from_mcp_tool(t, name)
-                        for t in tools_result.tools
-                    ]
+                    tools = [MCPToolDefinition.from_mcp_tool(t, name) for t in tools_result.tools]
 
-                    logger.info(
-                        "mcp_server_connected",
-                        server=name,
-                        tools_count=len(tools)
-                    )
+                    logger.info("mcp_server_connected", server=name, tools_count=len(tools))
 
                     yield cls(name, session, tools)
 
@@ -141,17 +120,13 @@ class OfficialMCPConnection:
             # The official MCP SDK also supports these via different clients
             # For now, raise an error - can be extended
             raise NotImplementedError(
-                f"HTTP/SSE transport not yet implemented with official SDK. "
-                f"Use 'stdio' transport or the legacy custom transports."
+                "HTTP/SSE transport not yet implemented with official SDK. "
+                "Use 'stdio' transport or the legacy custom transports."
             )
         else:
             raise ValueError(f"Unknown transport type: {config.transport}")
 
-    async def invoke_tool(
-        self,
-        tool_name: str,
-        arguments: Dict[str, Any]
-    ) -> Any:
+    async def invoke_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
         Invoke a tool on this server.
 
@@ -172,7 +147,7 @@ class OfficialMCPConnection:
             if result.content:
                 # Return first text content, or the full content list
                 for content in result.content:
-                    if hasattr(content, 'text'):
+                    if hasattr(content, "text"):
                         return content.text
                 return result.content
 
@@ -180,19 +155,16 @@ class OfficialMCPConnection:
 
         except Exception as e:
             logger.error(
-                "mcp_tool_invocation_failed",
-                server=self.name,
-                tool=tool_name,
-                error=str(e)
+                "mcp_tool_invocation_failed", server=self.name, tool=tool_name, error=str(e)
             )
             raise RuntimeError(f"Tool invocation failed: {e}") from e
 
     @property
-    def tools(self) -> List[MCPToolDefinition]:
+    def tools(self) -> list[MCPToolDefinition]:
         """Get list of available tools."""
         return self._tools
 
-    def get_tool(self, name: str) -> Optional[MCPToolDefinition]:
+    def get_tool(self, name: str) -> MCPToolDefinition | None:
         """Get a tool by name."""
         for tool in self._tools:
             if tool.name == name:
@@ -207,9 +179,9 @@ class MCPConnectionManager:
     providing a unified interface for tool discovery and invocation.
     """
 
-    def __init__(self):
-        self._connections: Dict[str, OfficialMCPConnection] = {}
-        self._configs: Dict[str, MCPServerConfig] = {}
+    def __init__(self) -> None:
+        self._connections: dict[str, OfficialMCPConnection] = {}
+        self._configs: dict[str, MCPServerConfig] = {}
 
     async def connect(self, name: str, config: MCPServerConfig) -> None:
         """
@@ -239,19 +211,14 @@ class MCPConnectionManager:
             except Exception as e:
                 logger.error("mcp_connection_failed", server=name, error=str(e))
 
-    def get_all_tools(self) -> List[MCPToolDefinition]:
+    def get_all_tools(self) -> list[MCPToolDefinition]:
         """Get all tools from all connected servers."""
         tools = []
         for conn in self._connections.values():
             tools.extend(conn.tools)
         return tools
 
-    async def invoke_tool(
-        self,
-        server_name: str,
-        tool_name: str,
-        arguments: Dict[str, Any]
-    ) -> Any:
+    async def invoke_tool(self, server_name: str, tool_name: str, arguments: dict[str, Any]) -> Any:
         """
         Invoke a tool on a specific server.
 

@@ -1,11 +1,10 @@
 """A2A individual agent server."""
 
-from typing import Any, Callable, Dict, List
-
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from collections.abc import Callable
+from typing import Any
 
 import structlog
+from fastapi import FastAPI, Request
 
 logger = structlog.get_logger()
 
@@ -17,10 +16,10 @@ class A2AIndividualServer:
         self,
         name: str,
         description: str,
-        handler_fn: Callable[[Dict], Any],
-        host: str = "0.0.0.0",
+        handler_fn: Callable[[dict], Any],
+        host: str = "127.0.0.1",
         port: int = 9010,
-        skills: List[Dict[str, str]] = None
+        skills: list[dict[str, str]] | None = None,
     ):
         """
         Initialize the individual agent server.
@@ -47,17 +46,17 @@ class A2AIndividualServer:
         """Set up API routes."""
 
         @self._app.get("/.well-known/agent.json")
-        async def get_agent_card():
+        async def get_agent_card() -> dict[str, Any]:
             """Return agent card."""
             return self._get_card()
 
         @self._app.post("/")
-        async def handle_request(request: Request):
+        async def handle_request(request: Request) -> dict:
             """Handle A2A request."""
             body = await request.json()
             return await self._handle_request(body)
 
-    def _get_card(self) -> Dict[str, Any]:
+    def _get_card(self) -> dict[str, Any]:
         """Get the agent card."""
         return {
             "protocolVersion": "1.0",
@@ -65,22 +64,19 @@ class A2AIndividualServer:
             "description": self._description,
             "version": "1.0.0",
             "supportedInterfaces": [
-                {
-                    "url": f"http://{self._host}:{self._port}/",
-                    "protocolBinding": "JSONRPC"
-                }
+                {"url": f"http://{self._host}:{self._port}/", "protocolBinding": "JSONRPC"}
             ],
             "capabilities": {
                 "streaming": False,
                 "pushNotifications": False,
-                "stateTransitionHistory": False
+                "stateTransitionHistory": False,
             },
             "defaultInputModes": ["text/plain"],
             "defaultOutputModes": ["text/plain"],
-            "skills": self._skills
+            "skills": self._skills,
         }
 
-    async def _handle_request(self, request: Dict) -> Dict:
+    async def _handle_request(self, request: dict) -> dict:
         """Handle an A2A request."""
         request_id = request.get("id", "unknown")
         method = request.get("method", "")
@@ -109,12 +105,10 @@ class A2AIndividualServer:
                             "status": "COMPLETED",
                             "result": {
                                 "role": "agent",
-                                "parts": [
-                                    {"type": "text", "text": str(result)}
-                                ]
-                            }
+                                "parts": [{"type": "text", "text": str(result)}],
+                            },
                         }
-                    }
+                    },
                 }
 
             except Exception as e:
@@ -126,29 +120,22 @@ class A2AIndividualServer:
                         "task": {
                             "id": f"task-{request_id}",
                             "status": "FAILED",
-                            "error": str(e)
+                            "error": "Internal processing error",
                         }
-                    }
+                    },
                 }
 
         return {
             "jsonrpc": "2.0",
             "id": request_id,
-            "error": {
-                "code": -32601,
-                "message": f"Method not found: {method}"
-            }
+            "error": {"code": -32601, "message": f"Method not found: {method}"},
         }
 
     async def start(self) -> None:
         """Start the server."""
         import uvicorn
-        config = uvicorn.Config(
-            self._app,
-            host=self._host,
-            port=self._port,
-            log_level="info"
-        )
+
+        config = uvicorn.Config(self._app, host=self._host, port=self._port, log_level="info")
         server = uvicorn.Server(config)
         await server.serve()
 

@@ -54,6 +54,9 @@ dependencies = [
     # HTTP client
     "httpx>=0.25.0",
 
+    # Multi-framework agent support
+    "any-agent>=1.14.0",
+
     # Utilities
     "python-dotenv>=1.0.0",
     "structlog>=23.0.0",
@@ -61,9 +64,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+frameworks = [
+    "any-agent[openai]>=1.14.0",
+    "any-agent[google]>=1.14.0",
+    "any-agent[smolagents]>=1.14.0",
+    "any-agent[llama-index]>=1.14.0",
+    "any-agent[agno]>=1.14.0",
+]
 dev = [
     "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
+    "pytest-asyncio>=0.23.0,<1.0.0",
     "pytest-mock>=3.0.0",
     "pytest-cov>=4.0.0",
     "respx>=0.20.0",
@@ -102,3 +112,44 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pydantic",
+    "pydantic.*",
+    "fastapi",
+    "fastapi.*",
+    "starlette",
+    "starlette.*",
+    "uvicorn",
+    "uvicorn.*",
+    "structlog",
+    "structlog.*",
+    "httpx",
+    "httpx.*",
+    "mcp",
+    "mcp.*",
+    "langchain_core",
+    "langchain_core.*",
+    "langchain_openai",
+    "langchain_openai.*",
+    "langchain_anthropic",
+    "langchain_anthropic.*",
+    "langchain_google_genai",
+    "langchain_google_genai.*",
+    "langchain_community",
+    "langchain_community.*",
+    "langgraph",
+    "langgraph.*",
+    "langgraph_supervisor",
+    "langgraph_supervisor.*",
+    "any_agent",
+    "any_agent.*",
+    "opentelemetry",
+    "opentelemetry.*",
+    "yaml",
+    "yaml.*",
+    "psycopg2",
+    "psycopg2.*",
+]
+ignore_missing_imports = true
